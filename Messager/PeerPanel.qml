@@ -12,7 +12,13 @@
 * Change Log:
 * [v0.1.0]    2026-06-02
 * * Initial creation
+*
+* Change Log:
+* [v0.2.0]    2026-06-03
+* * 左侧栏实现了选择用户功能（实现鼠标悬停变色，选择变色），并与顶部栏连通（通过Main.qml传递消息）
+* * 搜索栏完成消息传递，但具体操作还未完成
 */
+
 
 import QtQuick
 import QtQuick.Controls
@@ -22,8 +28,13 @@ Rectangle {
     id: peerPanel
     color: "#D9D9D9"
 
+    //Main.qml给，控制左侧用户高亮
+    property string currentPeerId: ""
+
     //后续交给PeerModel或AppController处理
     signal searchTextChanged(string keyword)
+    //点击左侧用户，向Main.qml发送用户信息
+    signal peerSelected(string peerId, string username)
 
     //目前先使用测试数据
     ListModel {
@@ -114,7 +125,12 @@ Rectangle {
             width: peerListView.width - 20
             height: 50
             radius: 10
-            color: mouseArea.containsMouse ? "#888888" : "#adadad"
+            //color: mouseArea.containsMouse ? "#888888" : "#adadad"
+            //当前用户是否被选中
+            property bool selected: peerPanel.currentPeerId === model.peerId
+            //选中：#7d7d7d    悬停:#888888     默认：#adadad
+            color: selected ? "#7d7d7d" : mouseArea.containsMouse ? "#888888" : "#adadad"
+
 
             anchors.horizontalCenter: parent.horizontalCenter
 
@@ -170,7 +186,10 @@ Rectangle {
                 cursorShape: Qt.PointingHandCursor
 
                 onClicked: {
-                    console.log("选择用户:", model.peerId, model.username)
+                    //console.log("选择用户:", model.peerId, model.username)
+                    //把当前点击的用户信息发送给Main.qml
+                    peerPanel.peerSelected(model.peerId, model.username)
+
                 }
             }
 
