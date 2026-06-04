@@ -22,8 +22,16 @@ Rectangle {
     id: peerPanel
     color: "#D9D9D9"
 
-    //后续交给PeerModel或AppController处理
+    //后续交给 PeerModel 或 AppController 处理
     signal searchTextChanged(string keyword)
+
+    //     [v0.1.2] HeZhiyuan    2026-06-03 16:24:01
+    //         *新增点击用户后的操作
+    //点击左侧用户后，向 Main.qml 通知当前选中的用户
+    signal peerSelected(string peerId, string username, string ip)
+
+    //当前被选中的用户 id，用于控制列表项高亮
+    property string selectedPeerId: ""
 
     //目前先使用测试数据
     ListModel {
@@ -112,25 +120,30 @@ Rectangle {
 
         delegate: Rectangle {
             width: peerListView.width - 20
-            height: 50
+            height: 56
             radius: 10
-            color: mouseArea.containsMouse ? "#888888" : "#adadad"
+
+
+            //选中用户后改变背景色。
+            color: peerPanel.selectedPeerId === model.peerId ? "#E8F3FF" : "#F5F5F5"
+
+            border.color: peerPanel.selectedPeerId === model.peerId ? "#9BCBFF" : "#E0E0E0"
+            border.width: 1
 
             anchors.horizontalCenter: parent.horizontalCenter
 
-            //在线状态的原点
+            //在线状态圆点
             Rectangle {
                 id: statusDot
 
                 width: 10
                 height: 10
-                radius: 10
-                color: model.online ? "#00ca00" : "#b8b8b8"
+                radius: 5
+                color: model.online ? "#00CA00" : "#B8B8B8"
 
                 anchors.left: parent.left
-                anchors.leftMargin: 10
-                anchors.top: parent.top
-                anchors.topMargin: 15
+                anchors.leftMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
             }
 
             //用户名
@@ -138,42 +151,45 @@ Rectangle {
                 id: usernameText
 
                 text: model.username
-                font.pixelSize: 12
+                font.pixelSize: 13
                 font.bold: true
-                color: "black"
+                color: "#1F2329"
 
                 anchors.left: statusDot.right
                 anchors.leftMargin: 10
                 anchors.top: parent.top
-                anchors.topMargin: 10
+                anchors.topMargin: 9
             }
 
-            // IP 地址
+            //IP 地址
             Text {
                 id: ipText
 
-                text:model.ip
+                text: model.ip
                 font.pixelSize: 12
-                color: "#313131"
+                color: "#6B7280"
 
                 anchors.left: usernameText.left
                 anchors.top: usernameText.bottom
                 anchors.topMargin: 5
             }
 
-            //鼠标点击区域
-            MouseArea {
-                id: mouseArea
+            //     [v0.1.2] HeZhiyuan    2026-06-03 13:36:08
+            //         *   点击处理区域。TapHandler不是可视控件，它会处理当前delegate的点击。
+            TapHandler {
+                id: tapHandler
 
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
+                onTapped: {
+                    //记录当前选中的用户，用于高亮左侧列表项
+                    peerPanel.selectedPeerId = model.peerId
 
-                onClicked: {
-                    console.log("选择用户:", model.peerId, model.username)
+                    //把用户信息发给 Main.qml
+                    peerPanel.peerSelected(model.peerId, model.username, model.ip)
+
+                    //调试输出，后续可以删除
+                    console.log("选择用户:", model.peerId, model.username, model.ip)
                 }
             }
-
         }
     }
 

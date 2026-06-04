@@ -28,10 +28,10 @@ ApplicationWindow {
    visible: true
    title: "Messager 信使"
 
-   //当前正在聊天的局域网用户信息，后续选择用户后，会修改这些值
+   //当前正在聊天的局域网用户信息
    property string currentPeerId: ""
-   property string currentPeerName: "请选择用户"
-
+   property string currentPeerName: ""
+   property string currentPeerIp: ""
 
 
    Rectangle {
@@ -39,28 +39,64 @@ ApplicationWindow {
        anchors.fill: parent
        color: "white"
 
-       //左侧用户面板
        PeerPanel {
-               id: peerPanel
+           id: peerPanel
 
-               width: 200
-               anchors.left: parent.left
-               anchors.top: parent.top
-               anchors.bottom: parent.bottom
+           width: 200
+           anchors.left: parent.left
+           anchors.top: parent.top
+           anchors.bottom: parent.bottom
+
+           //     [v0.1.2] HeZhiyuan    2026-06-03 16:37:40
+           //         * 用户点击左侧列表项后，这里会被调用
+           onPeerSelected: function(peerId, username, ip) {
+               root.currentPeerId = peerId
+               root.currentPeerName = username
+               root.currentPeerIp = ip
+
+               console.log("Main.qml 当前聊天对象:", peerId, username, ip)
+           }
        }
 
 
-       //右侧聊天窗口
-       ChatPanel {
-           id: chatPanel
+       // 没有选择用户时显示提示区域
+       Rectangle {
+           id: emptyPanel
 
-           anchors.left: peerPanel.right    //左侧栏右边
-           anchors.right: background.right  //此处用parent一样，下同
+           anchors.left: peerPanel.right
+           anchors.right: background.right
            anchors.top: background.top
            anchors.bottom: background.bottom
 
+           color: "#FAFAFA"
+           visible: root.currentPeerId === ""
+
+           Text {
+               text: qsTr("点击左侧用户开始聊天")
+               font.pixelSize: 16
+               color: "#999999"
+               anchors.centerIn: parent
+           }
+       }
+
+       //右侧聊天窗口：点击左侧用户后才显示
+       ChatPanel {
+           id: chatPanel
+
+           anchors.left: peerPanel.right
+           anchors.right: background.right
+           anchors.top: background.top
+           anchors.bottom: background.bottom
+
+
+           //     [v0.1.2] HeZhiyuan    2026-06-03 17:26:58
+           //         * 点击左侧用户后弹出聊天框。只有currentPeerId不为空，聊天框才显示
+           visible: root.currentPeerId !== ""
+
+           currentPeerId: root.currentPeerId
            currentPeerName: root.currentPeerName
-           color: "#FFFFFF"     
+
+           color: "#FFFFFF"
        }
    }
 }
