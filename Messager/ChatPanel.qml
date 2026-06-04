@@ -39,7 +39,7 @@ Rectangle{
             return
         }
 
-        if (content === 0)
+        if (content.length === 0)
             return
 
         //目前先这样，后面再改

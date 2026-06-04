@@ -40,8 +40,9 @@ Rectangle {
     //点击左侧用户后，向 Main.qml 通知当前选中的用户
     signal peerSelected(string peerId, string username, string ip)
 
-    //当前被选中的用户 id，用于控制列表项高亮
-    property string selectedPeerId: ""
+    //     [v0.1.2] HeZhiyuan    2026-06-04 20:31:57
+    //         * 仿照QQ,再次点击当前用户时，通知 Main.qml 关闭聊天窗口
+    signal peerClosed()
 
     //目前先使用测试数据
     ListModel {
@@ -134,9 +135,9 @@ Rectangle {
             radius: 10
 
             //选中用户后改变背景色。
-            color: peerPanel.selectedPeerId === model.peerId ? "#E8F3FF" : "#F5F5F5"
+            color: peerPanel.currentPeerId === model.peerId ? "#E8F3FF" : "#F5F5F5"
 
-            border.color: peerPanel.selectedPeerId === model.peerId ? "#9BCBFF" : "#E0E0E0"
+            border.color: peerPanel.currentPeerId === model.peerId ? "#9BCBFF" : "#E0E0E0"
             border.width: 1
 
             anchors.horizontalCenter: parent.horizontalCenter
@@ -185,14 +186,20 @@ Rectangle {
 
             //     [v0.1.2] HeZhiyuan    2026-06-03 13:36:08
             //         *   点击处理区域。TapHandler不是可视控件，它会处理当前delegate的点击。
+            //     [v0.1.2] HeZhiyuan    2026-06-04 20:44:51
+            //         * 实现类QQ，根据点击不同的用户，做出不同的操作
             TapHandler {
                 id: tapHandler
 
                 onTapped: {
-                    //记录当前选中的用户，用于高亮左侧列表项
-                    peerPanel.selectedPeerId = model.peerId
+                    //如果点击的是当前正在聊天的用户，则关闭聊天窗口，回到初始界面
+                    if (peerPanel.currentPeerId === model.peerId) {
+                        peerPanel.peerClosed()
+                        console.log("关闭当前聊天窗口:", model.peerId, model.username)
+                        return
+                    }
 
-                    //把用户信息发给 Main.qml
+                    //否则切换到该用户
                     peerPanel.peerSelected(model.peerId, model.username, model.ip)
 
                     //调试输出，后续可以删除

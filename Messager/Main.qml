@@ -63,6 +63,16 @@ ApplicationWindow {
                console.log("Main.qml 当前聊天对象:", peerId, username, ip)
            }
 
+           //     [v0.1.2] HeZhiyuan    2026-06-04 20:47:45
+           //         * 再次点击当前用户会关闭聊天窗口
+           onPeerClosed: {
+               root.currentPeerId = ""
+               root.currentPeerName = ""
+               root.currentPeerIp = ""
+
+               console.log("Main.qml 已回到初始界面")
+           }
+
            //接收PeerPanel发送的  搜索框改变  的信号
            onSearchTextChanged: function(keyword) {
                //待改
