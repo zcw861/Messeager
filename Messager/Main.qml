@@ -12,6 +12,10 @@
 * Change Log:
 * [v0.1.0]    2026-05-26
 * * Initial creation
+*
+* Change Log:
+* [v0.2.0]    2026-06-3
+* * 使用-Id、-Name传递消息于Chatnel.qml 与 PeerPanel.qml。目前主要以左右两部分划分，左(PeerPanel, ChatPanel
 */
 
 import QtQuick
@@ -46,6 +50,8 @@ ApplicationWindow {
            anchors.left: parent.left
            anchors.top: parent.top
            anchors.bottom: parent.bottom
+           //把 Main.qml 当前选中的用户 id 传给 PeerPanel，用于左侧高亮
+           currentPeerId: root.currentPeerId
 
            //     [v0.1.2] HeZhiyuan    2026-06-03 16:37:40
            //         * 用户点击左侧列表项后，这里会被调用
@@ -55,6 +61,12 @@ ApplicationWindow {
                root.currentPeerIp = ip
 
                console.log("Main.qml 当前聊天对象:", peerId, username, ip)
+           }
+
+           //接收PeerPanel发送的  搜索框改变  的信号
+           onSearchTextChanged: function(keyword) {
+               //待改
+               console.log("搜索用户", keyword)
            }
        }
 

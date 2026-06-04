@@ -12,7 +12,13 @@
 * Change Log:
 * [v0.1.0]    2026-06-02
 * * Initial creation
+*
+* Change Log:
+* [v0.2.0]    2026-06-03
+* * 左侧栏实现了选择用户功能（实现鼠标悬停变色，选择变色），并与顶部栏连通（通过Main.qml传递消息）
+* * 搜索栏完成消息传递，但具体操作还未完成
 */
+
 
 import QtQuick
 import QtQuick.Controls
@@ -23,6 +29,10 @@ Rectangle {
     color: "#D9D9D9"
 
     //后续交给 PeerModel 或 AppController 处理
+    //Main.qml给，控制左侧用户高亮
+    property string currentPeerId: ""
+
+    //后续交给PeerModel或AppController处理
     signal searchTextChanged(string keyword)
 
     //     [v0.1.2] HeZhiyuan    2026-06-03 16:24:01
@@ -123,7 +133,6 @@ Rectangle {
             height: 56
             radius: 10
 
-
             //选中用户后改变背景色。
             color: peerPanel.selectedPeerId === model.peerId ? "#E8F3FF" : "#F5F5F5"
 
@@ -192,5 +201,4 @@ Rectangle {
             }
         }
     }
-
 }
