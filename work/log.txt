@@ -37,3 +37,7 @@
 
 6.4
 聊天界面实现双击同一用户会退出聊天界面
+
+6.5
+（1）整理PeerPanel.qml注释结构，将signal peerSelected、signal peerClosed()和TapHandler在文件头的个人日志在Change Log中归档为 v0.2.1，保持源码注释只说明接口用途和业务逻辑。
+（2）完善了左侧栏搜索功能，实现根据用户名或 IP 地址对局域网用户列表进行过滤显示。

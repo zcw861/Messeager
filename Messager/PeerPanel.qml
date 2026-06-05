@@ -10,13 +10,22 @@
 *
 *
 * Change Log:
-* [v0.1.0]    2026-06-02
+* [v0.1.0]  JiangFan  2026-06-02
 * * Initial creation
 *
 * Change Log:
-* [v0.2.0]    2026-06-03
+* [v0.2.0]  JiangFan  2026-06-03
 * * 左侧栏实现了选择用户功能（实现鼠标悬停变色，选择变色），并与顶部栏连通（通过Main.qml传递消息）
 * * 搜索栏完成消息传递，但具体操作还未完成
+*
+* Change Log:
+* [v0.2.1]  HeZhiYuan  2026-06-04
+* * 新增peerClosed信号，用于在再次点击当前聊天用户时通知Main.qml关闭当前会话。
+* * 完善用户项点击逻辑：点击当前用户触发peerClosed，点击其他用户触发peerSelected并切换聊天对象。
+* * 调整左侧用户列表交互方式，使其更接近QQ的会话选择行为。
+Change Log:
+* [v0.2.2]  JiangFan  2026-06-05
+* * 整理注释结构，完善左侧栏搜索功能,重写鼠标悬停变色逻辑
 */
 
 
@@ -27,21 +36,22 @@ import QtQuick.Controls
 Rectangle {
     id: peerPanel
     color: "#D9D9D9"
+    //color: "#F7F8FA"
 
     //后续交给 PeerModel 或 AppController 处理
     //Main.qml给，控制左侧用户高亮
     property string currentPeerId: ""
 
+    //当前搜索关键字,搜索框变化时更新，过滤左侧用户列表
+    property string searchKeyword : ""
+
     //后续交给PeerModel或AppController处理
     signal searchTextChanged(string keyword)
 
-    //     [v0.1.2] HeZhiyuan    2026-06-03 16:24:01
-    //         *新增点击用户后的操作
     //点击左侧用户后，向 Main.qml 通知当前选中的用户
     signal peerSelected(string peerId, string username, string ip)
 
-    //     [v0.1.2] HeZhiyuan    2026-06-04 20:31:57
-    //         * 仿照QQ,再次点击当前用户时，通知 Main.qml 关闭聊天窗口
+    //点击当前用户时，通知 Main.qml 关闭聊天窗口
     signal peerClosed()
 
     //目前先使用测试数据
@@ -70,6 +80,17 @@ Rectangle {
         }
     }
 
+    //判断某个用户是否匹配当前搜索关键字
+    function matchSearch(username, ip)
+    {
+        if (searchKeyword.length == 0)
+            return true
+
+        var keyword = searchKeyword.toLowerCase()
+
+        //用户名 / ip地址 里包含keyword
+        return username.toLowerCase().indexOf(keyword) !== -1 || ip.toLowerCase().indexOf(keyword) !== -1
+    }
 
 
 
@@ -111,7 +132,12 @@ Rectangle {
 
         //当输入内容发生变化时，向外发出信号
         onTextChanged: {
-            peerPanel.searchTextChanged(text)
+
+            //记录当前搜索关键字
+            peerPanel.searchKeyword = text.trim()
+
+            // 向外传递关键字变化，后续可交给PeerModel / AppController处理
+            peerPanel.searchTextChanged(peerPanel.searchKeyword)
         }
     }
 
@@ -130,14 +156,30 @@ Rectangle {
         model: testPeerModel
 
         delegate: Rectangle {
+            id: peerItem
             width: peerListView.width - 20
-            height: 56
             radius: 10
 
-            //选中用户后改变背景色。
-            color: peerPanel.currentPeerId === model.peerId ? "#E8F3FF" : "#F5F5F5"
+            //当前用户是否匹配关键字
+            property bool matched: peerPanel.matchSearch(model.username, model.ip)
 
-            border.color: peerPanel.currentPeerId === model.peerId ? "#9BCBFF" : "#E0E0E0"
+            //当前用户是否被选中
+            property bool selected: peerPanel.currentPeerId === model.peerId
+
+            //不匹配--> 高度为0 --> 隐藏
+            height: matched ? 56 : 0
+            visible: matched
+
+            //选中 > 悬停 > 默认
+            color: selected ? "#E8F3FF"
+                            : hoverHandler.hovered ? "#EEEEEE"
+                            : "#F5F5F5"
+
+            border.color: selected ? "#9BCBFF"
+                                   : hoverHandler.hovered ? "#D0D0D0"
+                                   : "#E0E0E0"
+
+
             border.width: 1
 
             anchors.horizontalCenter: parent.horizontalCenter
@@ -184,10 +226,15 @@ Rectangle {
                 anchors.topMargin: 5
             }
 
-            //     [v0.1.2] HeZhiyuan    2026-06-03 13:36:08
-            //         *   点击处理区域。TapHandler不是可视控件，它会处理当前delegate的点击。
-            //     [v0.1.2] HeZhiyuan    2026-06-04 20:44:51
-            //         * 实现类QQ，根据点击不同的用户，做出不同的操作
+           //鼠标悬停处理
+            HoverHandler {
+                id: hoverHandler
+                cursorShape: Qt.PointingHandCursor
+            }
+
+
+
+           //根据点击不同的用户，做出不同的操作
             TapHandler {
                 id: tapHandler
 
