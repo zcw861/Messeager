@@ -16,40 +16,20 @@
 * [v0.2.0]    2026-06-03
 * * 实现聊天框的发送消息，增加enter, ctrl + enter事件处理
 */
-
+//     [v0.1.2] HeZhiyuan    2026-06-05 22:39:59
+//         * 增加聊天消息前端显示功能，发送消息后，当前聊天窗口会立即显示自己发送的内容。
 import QtQuick
 import QtQuick.Controls
 
 Rectangle{
     id: root
 
-    //Main.qml传入
+    //MessageWindow.qml传入
     property string currentPeerId: ""
     property string currentPeerName: "请选择用户"
+    property var messageModel: null //MessageWindow.qml 传入的消息模型
 
     color: "#FFFFFF"
-
-    //发送消息
-    function trysendMessage() {
-        var content = inputArea.text.trim()
-
-        if (root.currentPeerId === "")
-        {
-            console.log("请先选择聊天对象")
-            return
-        }
-
-        if (content.length === 0)
-            return
-
-        //目前先这样，后面再改
-        console.log("发送给", root.currentPeerId, "内容", content)
-
-        inputArea.text = ""
-    }
-
-
-
 
     //顶部栏
     Rectangle {
@@ -62,8 +42,6 @@ Rectangle{
 
         color: "#FFFFFF"
 
-
-
         //分割线
         Rectangle {
             height: 1
@@ -73,8 +51,6 @@ Rectangle{
             anchors.right: parent.right
             anchors.bottom: parent.bottom
         }
-
-
 
         Text {
             id: chatTitle
@@ -97,130 +73,78 @@ Rectangle{
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: chatHeader.bottom
-        anchors.bottom: inputBar.top //编辑框上方
+        anchors.bottom: parent.bottom //编辑框上方
 
         color: "#F5F5F5"
 
+        //没有消息时的提示
         Text {
             text: qsTr("暂无消息")
             color: "#999999"
             font.pixelSize: 15
             anchors.centerIn: parent
-        }
-    }
 
-    //底部输入栏
-    Rectangle {
-        id: inputBar
-
-        height: 200
-        color: "#FFFFFF"
-
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        //输入栏顶部分割线
-        Rectangle {
-            height: 1
-            color: "#E5E5E5"
-
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
+            visible: messageList.count === 0
         }
 
+        //消息列表
+        ListView {
+            id: messageList
 
+            anchors.fill: parent
+            anchors.margins: 12
 
-        TextArea {
-            id: inputArea
+            clip: true
+            spacing: 8
 
-            placeholderText: qsTr("请输入消息......")
-            font.pixelSize: 14
-            wrapMode: TextEdit.Wrap
+            model: root.messageModel
 
-            anchors.left: parent.left
-            anchors.leftMargin: 15
-            anchors.right: parent.right  //让他包含发送按钮
-            anchors.rightMargin: 10
-            anchors.top: parent.top
-            anchors.topMargin: 10
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 10
-
-            background: Rectangle {
-                radius: 8
-                color: "#D0D0D0"
-                border.color: "red"
-                border.width: 1
+            //每新增一条消息，自动滚动到底部
+            onCountChanged: {
+                Qt.callLater(function() {
+                    messageList.positionViewAtEnd()
+                })
             }
 
-            //一个处理回车事件的函数
-            // enter or send(press send Button) --> 发送
-            // ctrl + enter--> 换行
-            Keys.onPressed: function(event) {
+            delegate: Item {
+                width: messageList.width
+                height: messageBubble.height + 8
 
-                //没有按按钮且没有回车
-                if (!(event.key === Qt.Key_Return || event.key === Qt.Key_Enter))
-                    return
+                //使用 required property 接收 ListModel 角色数据
+                required property bool fromMe
+                required property string content
 
-                //ctrl + enter : 换行
-                if ((event.modifiers & Qt.ControlModifier) !== 0)
-                {
-                    inputArea.insert(inputArea.cursorPosition, "\n")
-                    event.accepted = true
-                    return
+                Rectangle {
+                    id: messageBubble
+
+                    width: Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
+                    height: messageText.implicitHeight + 18
+
+                    //自己发送的消息靠右
+                    x: fromMe ? parent.width - width : 0
+
+                    radius: 8
+                    color: fromMe ? "#9EEA6A" : "#FFFFFF"
+
+                    Text {
+                        id: messageText
+
+                        text: content
+                        font.pixelSize: 14
+                        color: "#1F2329"
+
+                        width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
+                        wrapMode: Text.Wrap
+
+                        anchors.left: parent.left
+                        anchors.leftMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
-
-                //enter or send
-                root.trysendMessage()
-                event.accepted = true
-
             }
+
+            ScrollBar.vertical: ScrollBar { }
         }
-
-        //发送信息按钮
-        Button {
-            id: sendButton
-
-            width:60
-            height: 30
-            text: qsTr("发送")
-
-            anchors.right: parent.right
-            anchors.rightMargin: 15
-            //anchors.verticalCenter: parent.verticalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 15
-
-
-            enabled: root.currentPeerId !== "" && inputArea.text.trim().length > 0
-
-            background: Rectangle{
-                radius: 10
-                color: sendButton.enabled ? "#12B7F5" : "#C9CDD4"
-            }
-
-
-            contentItem: Text {
-                text: sendButton.text
-                color: "#FFFFFF"
-                font.pixelSize: 14
-                font.bold: true
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-            }
-
-
-
-            onClicked: {
-                //console.log("发送给:", currentPeerId, "内容", inputArea.text)
-                //inputArea.text = ""
-                //改成直接调用函数
-                root.trysendMessage()
-
-            }
-        }
-
     }
 
 
