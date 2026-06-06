@@ -26,6 +26,9 @@
 Change Log:
 * [v0.2.2]  JiangFan  2026-06-05
 * * 整理注释结构，完善左侧栏搜索功能,重写鼠标悬停变色逻辑
+Change Log:
+* [v0.2.3]  ZhouChengWei  2026-06-06
+* * 添加创建群聊按钮并且添加了相关菜单项
 */
 
 
@@ -111,7 +114,7 @@ Rectangle {
     TextField {
         id: searchField
 
-        width: parent.width - 20
+        width: parent.width - 50
         height: 30
 
         placeholderText: qsTr("搜索用户")
@@ -255,4 +258,55 @@ Rectangle {
             }
         }
     }
+
+    //创建群聊按钮
+    Rectangle{
+        id: createGroupChat
+        width: 30
+        height:  30
+        radius: 10
+        color: typeChange.hovered ? "#a9a9a9" : "#f5f5f5"
+        anchors.leftMargin: 5
+        anchors.left: searchField.right
+        anchors.top: searchField.top
+
+        Text{
+            text: "+"
+            font.pointSize: 20
+            color: "#e6e6fa"
+            anchors.centerIn: parent
+        }
+
+        HoverHandler {
+            id: typeChange
+            cursorShape: Qt.PointingHandCursor
+        }
+
+        TapHandler{
+            onTapped: {
+                featureSet.popup(createGroupChat, 0, createGroupChat.height)
+            }
+        }
+
+        //创建群聊/添加好友等功能的菜单
+        Menu{
+            id: featureSet
+            width: 100
+
+            MenuItem{
+                text: qsTr("创建群聊")
+                TapHandler{
+                    onTapped: inviteUserInterfaceLoader.item.show()
+                }
+            }
+            MenuItem{
+                text: qsTr("加好友")
+            }
+        }
+    }
+
+    Loader {
+            id: inviteUserInterfaceLoader
+            source: "InviteUserInterface.qml"
+        }
 }
