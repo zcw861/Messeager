@@ -5,6 +5,8 @@
 //
 //     [v0.1.1]  ZhouChengWei   2026-06-06 12:38:11
 //         * 添加取消和确定按钮。
+//     [v0.1.2]  ZhouChengWei   2026-06-06 22:31:45
+//         * 添加左侧用户列表。
 
 import QtQuick
 import QtQuick.Controls
@@ -18,12 +20,40 @@ Window {
 
     property bool userSelected: false
 
+    ListModel {
+        id: testPeerModel
+
+        ListElement {
+            peerId: "01"
+            username: "张三"
+            ip: "192.168.1.1"
+            online: true
+            selected: false
+        }
+
+        ListElement {
+            peerId: "02"
+            username: "李四"
+            ip: "192.168.1.2"
+            online: true
+            selected: false
+        }
+
+        ListElement {
+            peerId: "03"
+            username: "王五"
+            ip: "192.168.1.3"
+            online: false
+            selected: false
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
         color: "white"
 
         Text {
-            text: "这是新窗口"
+            text: "邀请窗口"
             anchors.centerIn: parent
             font.pointSize: 16
         }
@@ -84,6 +114,100 @@ Window {
 
             HoverHandler {
                 id: cancelButtonHover
+            }
+        }
+
+        //搜索框
+        TextField {
+            id: searchField
+            anchors.top: parent.top
+            anchors.topMargin: 20
+            anchors.left: parent.left
+            anchors.right: leftInvateUser.right
+            anchors.margins: 10
+            height: 30
+            placeholderText: "搜索用户..."
+
+            background: Rectangle {
+                id: searchBackGround
+                radius: 5
+                color: "#ffffff"
+                border.color: searchField.activeFocus ? "#a6ceec" : "#e0e0e0"
+            }
+        }
+
+
+        //左侧用户列表
+        Rectangle{
+            id:leftInvateUser
+            width: 200
+            color: "white"
+            anchors.bottom: parent.bottom
+            anchors.top: searchField.bottom
+            anchors.topMargin: 10
+            // 右边的分割线
+            Rectangle {
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 1  //分割线宽度
+                color: "#e0e0e0"  //分割线颜色
+                opacity: 0.3
+            }
+
+
+            ListView{
+                id: userListView
+                anchors.fill: parent
+                anchors.margins: 5
+                clip: true
+                model: testPeerModel
+
+                delegate: Rectangle {
+                    width: ListView.view.width - 20  // 减去左右边距
+                    height: 45
+                    radius: 5
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    color: isIn.hovered ? "#d3d3d3" : "white"
+                    border.color: "#e0e0e0"
+                    border.width: 1
+
+                    //用户前面的圆圈（表示是否已经被选择)
+                    Rectangle{
+                        width: 20;  height: 20;  radius: 20
+                        anchors.left: parent.left
+                        anchors.leftMargin: 5
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: userSelected ? "blue" : "white"
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "用户 " + (index + 1)
+                        font.pointSize: 12
+                        color: "#333333"
+                    }
+
+                    HoverHandler{
+                        id: isIn
+                    }
+
+                    TapHandler{
+                        id: isSelected
+                    }
+                }
+
+                ScrollBar.vertical: ScrollBar {
+                    anchors.right: parent.right
+                    width: 6
+                    policy: ScrollBar.AsNeeded
+
+                    contentItem: Rectangle {
+                        implicitWidth: 4
+                        radius: 2
+                        color: "#cccccc"
+                    }
+                }
             }
         }
     }
