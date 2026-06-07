@@ -20,6 +20,7 @@ qt_add_qml_module(appMessager
     QML_FILES ChatPanel.qml
     QML_FILES MessageWindow.qml
     QML_FILES InputPanel.qml
+    QML_FILES InviteUserInterface.qml
 )
 target_compile_features(appMessager PRIVATE cxx_std_23)
 target_link_libraries(appMessager
