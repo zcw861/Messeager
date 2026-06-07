@@ -18,8 +18,6 @@ Window {
     visible: false
     flags: Qt.FramelessWindowHint
 
-    property bool userSelected: false
-
     ListModel {
         id: testPeerModel
 
@@ -164,9 +162,9 @@ Window {
                 model: testPeerModel
 
                 delegate: Rectangle {
-                    width: ListView.view.width - 20  // 减去左右边距
+                    width: ListView.view.width - 20  //减去左右边距
                     height: 45
-                    radius: 5
+                    radius: 10
                     anchors.horizontalCenter: parent.horizontalCenter
                     color: isIn.hovered ? "#d3d3d3" : "white"
                     border.color: "#e0e0e0"
@@ -178,12 +176,15 @@ Window {
                         anchors.left: parent.left
                         anchors.leftMargin: 5
                         anchors.verticalCenter: parent.verticalCenter
-                        color: userSelected ? "blue" : "white"
+                        color: model.selected ? "blue" : "white"
+                        border{
+                            width: 1; color: "#eae8e8"
+                        }
                     }
 
                     Text {
                         anchors.centerIn: parent
-                        text: "用户 " + (index + 1)
+                        text: model.username
                         font.pointSize: 12
                         color: "#333333"
                     }
@@ -194,6 +195,10 @@ Window {
 
                     TapHandler{
                         id: isSelected
+                        onTapped: {
+                            testPeerModel.setProperty(index, "selected", !model.selected)
+                        }
+
                     }
                 }
 
@@ -208,6 +213,23 @@ Window {
                         color: "#cccccc"
                     }
                 }
+            }
+        }
+
+        //右侧已经选择的用户
+        Rectangle{
+            anchors.left: leftInvateUser.right
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: okButton.top
+            anchors.bottomMargin: 10
+
+            Text {
+                id: crateGroup
+                text: qsTr("创建群聊")
+                color: "black"
+                anchors.left:searchField.right
+                anchors.leftMargin: 5
             }
         }
     }

@@ -79,10 +79,7 @@ Item {
             background: Rectangle {
                 radius: 8
                 color: "white"
-<<<<<<< HEAD
-=======
                 border.color: "black"
->>>>>>> refs/remotes/origin/dev
                 border.width: 1
             }
 
@@ -135,10 +132,7 @@ Item {
                 font.bold: true
                 anchors.centerIn: parent
             }
-<<<<<<< HEAD
 
-=======
->>>>>>> refs/remotes/origin/dev
             TapHandler {
                 enabled: sendButton.canSend
                 gesturePolicy: TapHandler.ReleaseWithinBounds
