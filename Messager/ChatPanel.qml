@@ -18,6 +18,8 @@
 */
 //     [v0.1.2] HeZhiyuan    2026-06-05 22:39:59
 //         * 增加聊天消息前端显示功能，发送消息后，当前聊天窗口会立即显示自己发送的内容。
+//     [v0.1.2] HeZhiyuan    2026-06-07 13:57:18
+//         * 修改部分ui颜色
 import QtQuick
 import QtQuick.Controls
 
@@ -124,7 +126,7 @@ Rectangle{
                     x: fromMe ? parent.width - width : 0
 
                     radius: 8
-                    color: fromMe ? "#9EEA6A" : "#FFFFFF"
+                    color: fromMe ? "#12B7F5" : "#FFFFFF"
 
                     Text {
                         id: messageText

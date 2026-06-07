@@ -3,6 +3,8 @@
 // Created: HeZhiyuan      2026-06-05 20:45:54
 // Description:输入框：文本输入+发送按钮，输入框从ChatPanel.qml中拆出，单独负责输入和发送请求。
 //
+//     [v0.1.2] HeZhiyuan    2026-06-07 13:57:38
+//         * 修改部分ui颜色
 import QtQuick
 import QtQuick.Controls
 
@@ -74,8 +76,8 @@ Item {
 
             background: Rectangle {
                 radius: 8
-                color: "#D0D0D0"
-                border.color: "red"
+                color: "white"
+                border.color: "black"
                 border.width: 1
             }
 
@@ -128,8 +130,6 @@ Item {
                 font.bold: true
                 anchors.centerIn: parent
             }
-
-            //不使用 MouseArea，按照要求使用 TapHandler
             TapHandler {
                 enabled: sendButton.canSend
                 gesturePolicy: TapHandler.ReleaseWithinBounds
