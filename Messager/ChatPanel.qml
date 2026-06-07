@@ -133,7 +133,7 @@ Rectangle{
 
                         text: content
                         font.pixelSize: 14
-                        color: "#1F2329"
+                        color: "#FFFFFF"
 
                         width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
                         wrapMode: Text.Wrap

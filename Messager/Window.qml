@@ -66,9 +66,10 @@ ApplicationWindow {
            //         * 用户点击左侧列表项后，这里会被调用
            onPeerSelected: function(peerId, username, ip) {
                //切换到另一个用户时，先清空当前前端消息
-               if (root.currentPeerId !== peerId)
+               if (root.currentPeerId !== peerId){
                    chatMessageModel.clear()
-
+                   inputPanel.clear()
+               }
                root.currentPeerId = peerId
                root.currentPeerName = username
                root.currentPeerIp = ip
@@ -85,6 +86,7 @@ ApplicationWindow {
 
                // 关闭聊天窗口时清空前端消息
                chatMessageModel.clear()
+               inputPanel.clear()
                console.log("Main.qml 已回到初始界面")
            }
 

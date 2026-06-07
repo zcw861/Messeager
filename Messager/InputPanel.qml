@@ -38,6 +38,11 @@ Item {
         inputArea.text = ""
     }
 
+    //清空输入框
+    function clear() {
+        inputArea.text = ""
+    }
+
     //底部输入栏
     Rectangle {
         id: inputBar
@@ -79,10 +84,7 @@ Item {
             background: Rectangle {
                 radius: 8
                 color: "white"
-<<<<<<< HEAD
-=======
                 border.color: "black"
->>>>>>> refs/remotes/origin/dev
                 border.width: 1
             }
 
@@ -135,10 +137,7 @@ Item {
                 font.bold: true
                 anchors.centerIn: parent
             }
-<<<<<<< HEAD
 
-=======
->>>>>>> refs/remotes/origin/dev
             TapHandler {
                 enabled: sendButton.canSend
                 gesturePolicy: TapHandler.ReleaseWithinBounds

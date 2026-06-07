@@ -15,10 +15,10 @@ qt_add_qml_module(appMessager
     URI Messager
     VERSION 1.0
     SOURCES     main.cpp
-    QML_FILES   Main.qml
+    QML_FILES
     QML_FILES PeerPanel.qml
     QML_FILES ChatPanel.qml
-    QML_FILES MessageWindow.qml
+    QML_FILES Window.qml
     QML_FILES InputPanel.qml
     QML_FILES InviteUserInterface.qml
 )

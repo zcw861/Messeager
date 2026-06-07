@@ -235,13 +235,11 @@ Rectangle {
                 cursorShape: Qt.PointingHandCursor
             }
 
-
-
            //根据点击不同的用户，做出不同的操作
             TapHandler {
                 id: tapHandler
 
-                onTapped: {
+                onTapped: {                    
                     //如果点击的是当前正在聊天的用户，则关闭聊天窗口，回到初始界面
                     if (peerPanel.currentPeerId === model.peerId) {
                         peerPanel.peerClosed()
