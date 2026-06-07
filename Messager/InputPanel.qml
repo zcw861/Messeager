@@ -3,6 +3,8 @@
 // Created: HeZhiyuan      2026-06-05 20:45:54
 // Description:输入框：文本输入+发送按钮，输入框从ChatPanel.qml中拆出，单独负责输入和发送请求。
 //
+//     [v0.1.1] ZhouChengWei    2026-06-06 21:17:26
+//         * 修改了输入框颜色，添加了鼠标在发送按钮悬停样式。
 import QtQuick
 import QtQuick.Controls
 
@@ -74,8 +76,7 @@ Item {
 
             background: Rectangle {
                 radius: 8
-                color: "#D0D0D0"
-                border.color: "red"
+                color: "white"
                 border.width: 1
             }
 
@@ -129,7 +130,6 @@ Item {
                 anchors.centerIn: parent
             }
 
-            //不使用 MouseArea，按照要求使用 TapHandler
             TapHandler {
                 enabled: sendButton.canSend
                 gesturePolicy: TapHandler.ReleaseWithinBounds
@@ -137,6 +137,11 @@ Item {
                 onTapped: {
                     root.trySendMessage()
                 }
+            }
+
+            HoverHandler{
+                id :eableSend
+                cursorShape: Qt.ArrowCursor
             }
         }
     }
