@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 4.2.3)
 project(Messager VERSION 0.1 LANGUAGES CXX)
 set(QT_QML_GENERATE_QMLLS_INI ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick)
+find_package(Qt6 REQUIRED COMPONENTS Quick Sql)
 qt_standard_project_setup(REQUIRES 6.11)
 
 qt_add_executable(appMessager  WIN32)
@@ -21,10 +21,13 @@ qt_add_qml_module(appMessager
     QML_FILES Window.qml
     QML_FILES InputPanel.qml
     QML_FILES InviteUserInterface.qml
+    SOURCES databasemanager.h databasemanager.cpp
 )
 target_compile_features(appMessager PRIVATE cxx_std_23)
 target_link_libraries(appMessager
-    PRIVATE Qt6::Quick
+    PRIVATE
+        Qt6::Quick
+        Qt6::Sql
 )
 
 set(CMAKE_INSTALL_PREFIX "/opt/${PROJECT_NAME}" CACHE PATH "Install path prefix" FORCE)
