@@ -6,6 +6,8 @@
 //         * 在open()里增加：在每次打开连接后主动开启外键检查
 //          *修改initSchema()：初始化数据库表1.peers：保存局域网用户信息，
 //          *2.messages：保存与某个用户相关的聊天消息，3.给消息表加索引，加快按用户读取聊天记录的速度
+//     [v0.1.2] HeZhiyuan    2026-06-09 22:56:40
+//         * 新增消息保存
 #include "databasemanager.h"
 
 #include <QDir>
@@ -221,5 +223,34 @@ bool DatabaseManager::upsertPeer(const QString &peerId,
         qWarning() << "执行upsertPeer失败" << m_lastError;
         return false;
     }
+    return true;
+}
+
+//保存一条聊天记录到message表：peerId:聊天对象唯一id，fromMe:true是我发的;false是对方发的，content:正文
+bool DatabaseManager::saveMessage(const QString &peerId, bool fromMe, const QString &content)
+{
+    if (content.trimmed().isEmpty()) {
+        m_lastError = "消息内容为空";
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+
+    query.prepare(R"(
+        INSERT INTO messages(peer_id, from_me, content)
+        VALUES(:peer_id, :from_me, :content)
+    )");
+
+    query.bindValue(":peer_id", peerId);
+    query.bindValue(":from_me", fromMe ? 1 : 0);    //1：我发送;0：对方发送
+    query.bindValue(":content", content.trimmed());
+
+    //执行sql语句
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        qWarning() << "执行saveMessage失败" << m_lastError;
+        return false;
+    }
+
     return true;
 }
