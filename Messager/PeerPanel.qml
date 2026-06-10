@@ -23,12 +23,18 @@
 * * 新增peerClosed信号，用于在再次点击当前聊天用户时通知Main.qml关闭当前会话。
 * * 完善用户项点击逻辑：点击当前用户触发peerClosed，点击其他用户触发peerSelected并切换聊天对象。
 * * 调整左侧用户列表交互方式，使其更接近QQ的会话选择行为。
-Change Log:
+*
+* Change Log:
 * [v0.2.2]  JiangFan  2026-06-05
 * * 整理注释结构，完善左侧栏搜索功能,重写鼠标悬停变色逻辑
-Change Log:
+*
+* Change Log:
 * [v0.2.3]  ZhouChengWei  2026-06-06
 * * 添加创建群聊按钮并且添加了相关菜单项
+*
+* Change Log:
+* [v0.2.4]  JiangFan  2026-06-10
+* * 增加左侧栏搜索框焦点清除功能
 */
 
 
@@ -144,6 +150,24 @@ Rectangle {
         }
     }
 
+    //清楚搜索框焦点
+    function clearSearchFocus()
+    {
+        searchField.focus = false
+        peerPanel.forceActiveFocus()
+    }
+
+    //判断坐标是否在搜索框内容
+    //sourceItem: 坐标来源对象
+    function isInSearchField(sourceItem, x, y)
+    {
+        //坐标转化
+        var pointInsearchField = searchField.mapFromItem(sourceItem, x, y)
+
+        return pointInsearchField.x >= 0 && pointInsearchField.x <= searchField.width
+                && pointInsearchField.y >= 0 && pointInsearchField.y <= searchField.height
+    }
+
     ListView {
         id: peerListView
 
@@ -240,6 +264,9 @@ Rectangle {
                 id: tapHandler
 
                 onTapped: {                    
+                    //清除搜索框焦点
+                    peerPanel.clearSearchFocus()
+
                     //如果点击的是当前正在聊天的用户，则关闭聊天窗口，回到初始界面
                     if (peerPanel.currentPeerId === model.peerId) {
                         peerPanel.peerClosed()
@@ -255,6 +282,16 @@ Rectangle {
                 }
             }
         }
+
+
+        TapHandler {
+            id: clearSearchHandler
+
+            onTapped: {
+                peerPanel.clearSearchFocus()
+            }
+        }
+
     }
 
     //创建群聊按钮
@@ -282,6 +319,9 @@ Rectangle {
 
         TapHandler{
             onTapped: {
+                //清除搜索框焦点
+                peerPanel.clearSearchFocus()
+
                 featureSet.popup(createGroupChat, 0, createGroupChat.height)
             }
         }
@@ -293,9 +333,17 @@ Rectangle {
 
             MenuItem{
                 text: qsTr("创建群聊")
+                /*
                 TapHandler{
                     onTapped: inviteUserInterfaceLoader.item.show()
                 }
+                */
+                //MenuItem本身就是可以点击的控件 并自带triggered信号,所以不应该用TapHandler
+                onTriggered: {
+                    peerPanel.clearSearchFocus()
+                    inviteUserInterfaceLoader.item.show()
+                }
+
             }
             MenuItem{
                 text: qsTr("加好友")

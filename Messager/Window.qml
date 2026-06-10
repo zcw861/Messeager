@@ -97,6 +97,21 @@ ApplicationWindow {
            }
        }
 
+       //全局焦点处理：点击搜索框以外的位置
+       TapHandler {
+           id: focus
+
+           gesturePolicy: TapHandler.DragThreshold
+
+           onTapped: function(eventPoint)
+           {
+                      if (!peerPanel.isInSearchField(background, eventPoint.x, eventPoint.y))
+                      {
+                                 peerPanel.clearSearchFocus()
+                      }
+           }
+       }
+
 
        //没有选择用户时显示提示区域
        Rectangle {
