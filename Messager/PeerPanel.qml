@@ -98,7 +98,8 @@ Rectangle {
         var keyword = searchKeyword.toLowerCase()
 
         //用户名 / ip地址 里包含keyword
-        return username.toLowerCase().indexOf(keyword) !== -1 || ip.toLowerCase().indexOf(keyword) !== -1
+        return username.toLowerCase().indexOf(keyword) !== -1
+                || ip.toLowerCase().indexOf(keyword) !== -1
     }
 
 

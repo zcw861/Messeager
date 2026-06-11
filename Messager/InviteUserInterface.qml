@@ -7,6 +7,8 @@
 //         * 添加取消和确定按钮。
 //     [v0.1.2]  ZhouChengWei   2026-06-06 22:31:45
 //         * 添加左侧用户列表。
+//     [v0.1.3]  JiangFan       2026-06-06 22:31:45
+//         * 实现搜索框搜索功能
 
 import QtQuick
 import QtQuick.Controls
@@ -17,6 +19,42 @@ Window {
     height: 500
     visible: false
     flags: Qt.FramelessWindowHint
+
+    //当前搜索关键字
+    property string searchKeyword: ""
+
+    //当前已选择的用户数量，用来控制选择按钮
+    property int selectCount: 0
+    property bool userSelected: selectCount > 0
+
+    //判断用户是否匹配关键字(跟PeerPanel一样）
+    function matchSearch(username, ip)
+    {
+        if (searchKeyword.length == 0)
+            return true
+
+        var keyword = searchKeyword.toLowerCase()
+
+        return username.toLowerCase().indexOf(keyword) !== -1
+                || ip.toLowerCase().indexOf(keyword) !== -1
+    }
+
+    //修改用户选中状态
+    function setUserSelected(row, selected)
+    {
+        var oldSelected = testPeerModel.get(row).selected
+
+        if (oldSelected === selected)
+            return
+
+        testPeerModel.setProperty(row, "selected", selected)
+
+        if (selected)
+            selectCount++
+        else
+            selectCount--
+    }
+
 
     ListModel {
         id: testPeerModel
@@ -132,6 +170,11 @@ Window {
                 color: "#ffffff"
                 border.color: searchField.activeFocus ? "#a6ceec" : "#e0e0e0"
             }
+
+            //监控文本变化
+            onTextChanged: {
+                inviteUserInterface.searchKeyword = text.trim()
+            }
         }
 
 
@@ -163,12 +206,20 @@ Window {
 
                 delegate: Rectangle {
                     width: ListView.view.width - 20  //减去左右边距
-                    height: 45
                     radius: 10
                     anchors.horizontalCenter: parent.horizontalCenter
                     color: isIn.hovered ? "#d3d3d3" : "white"
                     border.color: "#e0e0e0"
                     border.width: 1
+
+                    //当前用户是否匹配搜索关键字
+                    property bool matched: inviteUserInterface.matchSearch(model.username, model.ip)
+
+                    //不匹配-->隐藏
+                    height: matched ? 45 : 0
+                    visible: matched
+                    enabled: matched
+
 
                     //用户前面的圆圈（表示是否已经被选择)
                     Rectangle{
@@ -196,7 +247,7 @@ Window {
                     TapHandler{
                         id: isSelected
                         onTapped: {
-                            testPeerModel.setProperty(index, "selected", !model.selected)
+                            inviteUserInterface.setUserSelected(index, !model.selected)
                         }
 
                     }
