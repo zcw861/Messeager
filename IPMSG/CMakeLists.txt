@@ -18,8 +18,9 @@ target_sources(Messager
         # math.cppm           # 模块文件
     PRIVATE
         main.cpp
-        p2p.cpp
-        p2p.h
+        privatechat.cpp
+        privatechat.h
+        main.qml
 )
 
 # source_group("Messager", FILES  # 模块文件的分组

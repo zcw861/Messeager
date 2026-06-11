@@ -5,85 +5,39 @@
 //      Messager（信使）项目是一个基于局域网的p2p聊天软件，实现私聊，群聊，传文件等功能
 //      使用socket网络编程，c++封装，qml实现界面交互
 //      实现轻量化设计
+//
+//     [v0.1.1]  ZhouChengWei    2026-06-11 21:46:24
+//         * 将main.cpp修改为与qml交互
 
-#include "p2p.h"
+#include <QGuiApplication>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include "privatechat.h"
 
-#include <iostream>
-#include <limits>
-
-void show_peers()
+int main(int argc, char *argv[])
 {
-    std::lock_guard<std::mutex> lock(peer_mutex);
+    QGuiApplication app(argc, argv);
 
-    std::cout << "\n在线用户:\n";
+    //创建后端对象
+    PrivateChat privateChat;
 
-    int i = 0;
+    QQmlApplicationEngine engine;
 
-    for(auto& p : peers)
-    {
-        std::cout << ++i << " : " << p.second.name << " (" << p.second.ip << ")\n";
-    }
+    //把c++对象暴露给QML
+    engine.rootContext()->setContextProperty("privateChat", &privateChat);
 
-    std::cout << std::endl;
-}
+    //加载主QML文件
+    const QUrl url = QUrl::fromLocalFile("../../main.qml");
+    QObject::connect(
+        &engine,
+        &QQmlApplicationEngine::objectCreated,
+        &app,
+        [url](QObject *obj, const QUrl &objUrl) {
+            if (!obj && url == objUrl) QCoreApplication::exit(-1);
+        },
+        Qt::QueuedConnection);
 
-int main()
-{
-    std::string username;
+    engine.load(url);
 
-    std::cout << "输入用户名: ";
-    std::getline(std::cin, username);
-
-    start_udp_broadcast(username);
-    start_udp_listener();
-    start_tcp_server();
-
-    while(true)
-    {
-
-        std::cout << "\n";
-        std::cout << "1. 查看在线用户\n";
-        std::cout << "2. 发送消息\n";
-        std::cout << "3. 退出\n";
-        std::cout << "选择: ";
-
-        int op;
-        std::cin >> op;
-        if (std::cin.fail()) {
-            std::cin.clear();
-            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-            std::cout << "选择错误，请重试\n";
-            continue;
-        }
-        std::cin.ignore();
-
-        if(op == 1)
-        {
-            show_peers();
-        }
-        else if(op == 2)
-        {
-            show_peers();
-
-            std::string ip;
-            std::string msg;
-
-            std::cout << "输入对方IP: ";
-            std::getline(std::cin, ip);
-
-            std::cout << "输入消息: ";
-            std::getline(std::cin, msg);
-
-            send_message(ip, msg);
-        }
-        else if(op == 3)
-        {
-            break;
-        }else{
-            std::cout << "选择错误，请重试\n";
-            continue;
-        }
-    }
-
-    return 0;
+    return app.exec();
 }
