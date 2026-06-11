@@ -8,6 +8,12 @@
 //          *2.messages：保存与某个用户相关的聊天消息，3.给消息表加索引，加快按用户读取聊天记录的速度
 //     [v0.1.2] HeZhiyuan    2026-06-09 22:56:40
 //         * 新增消息保存
+//     [v0.1.2] HeZhiyuan    2026-06-11 17:12:42
+//         * 新增读取历史记录
+//     [v0.1.2] HeZhiyuan    2026-06-11 20:25:06
+//         * 增加saveMessage的失败检查
+//     [v0.1.2] HeZhiyuan    2026-06-11 20:56:33
+//         * 修改读取历史记录逻辑，修改messages表建立的索引
 #include "databasemanager.h"
 
 #include <QDir>
@@ -94,12 +100,14 @@ bool DatabaseManager::initSchema()
     }
 
     //给messages表建立索引。
-    const QString createMessagesIndexSql = R"(
-        CREATE INDEX IF NOT EXISTS idx_messages_peer_time
-        ON messages(peer_id, created_at)
+    //查询聊天记录时经常使用：WHERE peer_id = ? ORDER BY message_id。
+    //建立(peer_id, message_id)组合索引，可以减少数据库扫描量。
+    const QString createMessagesByIdIndexSql = R"(
+        CREATE INDEX IF NOT EXISTS idx_messages_peer_message_id
+        ON messages(peer_id, message_id)
     )";
 
-    if (!execSql(createMessagesIndexSql)) {
+    if (!execSql(createMessagesByIdIndexSql)) {
         return false;
     }
 
@@ -118,7 +126,7 @@ QString DatabaseManager::lastError() const
     return m_lastError;
 }
 
-//执行一条普通 SQL 语句
+//执行一条SQL语句
 bool DatabaseManager::execSql(const QString &sql)
 {
     QSqlQuery query(m_db);
@@ -229,6 +237,16 @@ bool DatabaseManager::upsertPeer(const QString &peerId,
 //保存一条聊天记录到message表：peerId:聊天对象唯一id，fromMe:true是我发的;false是对方发的，content:正文
 bool DatabaseManager::saveMessage(const QString &peerId, bool fromMe, const QString &content)
 {
+    if (!m_db.isOpen()) {
+        m_lastError = "数据库未打开";
+        return false;
+    }
+
+    if (peerId.trimmed().isEmpty()) {
+        m_lastError = "peerId 为空";
+        return false;
+    }
+
     if (content.trimmed().isEmpty()) {
         m_lastError = "消息内容为空";
         return false;
@@ -236,10 +254,17 @@ bool DatabaseManager::saveMessage(const QString &peerId, bool fromMe, const QStr
 
     QSqlQuery query(m_db);
 
-    query.prepare(R"(
+    const QString sql = R"(
         INSERT INTO messages(peer_id, from_me, content)
         VALUES(:peer_id, :from_me, :content)
-    )");
+    )";
+
+    if (!query.prepare(sql)) {
+        m_lastError = query.lastError().text();
+        qWarning() << "准备saveMessages SQL失败:" << m_lastError;
+        qWarning() << "SQL:" << sql;
+        return false;
+    }
 
     query.bindValue(":peer_id", peerId);
     query.bindValue(":from_me", fromMe ? 1 : 0);    //1：我发送;0：对方发送
@@ -253,4 +278,78 @@ bool DatabaseManager::saveMessage(const QString &peerId, bool fromMe, const QStr
     }
 
     return true;
+}
+
+//读取当前用户与某一用户的历史聊天记录
+//用limit防止一次加载太多历史消息；
+QVariantList DatabaseManager::loadMessages(const QString &peerId, int limit)
+{
+    QVariantList messages;
+
+    if (!m_db.isOpen()) {
+        m_lastError = "数据库未打开";
+        return messages;
+    }
+
+    if (peerId.trimmed().isEmpty()) {
+        m_lastError = "peerId 为空";
+        return messages;
+    }
+
+    //对传入的limit做保护，避免出现负数或极大数
+    if (limit <= 0) {
+        limit = 100;
+    }
+
+    if (limit > 500) {
+        limit = 500;
+    }
+
+    QSqlQuery query(m_db);
+
+    //这里按message_id降序读取，保证聊天记录是最新的那一批
+    //再升序排列，确保由旧到新显示
+    const QString sql = R"(
+        SELECT message_id, peer_id, from_me, content, created_at
+        FROM(
+            SELECT message_id, peer_id, from_me, content, created_at
+            FROM messages
+            WHERE peer_id = :peer_id
+            ORDER BY message_id DESC
+            LIMIT :limit
+        )
+        ORDER BY message_id ASC
+    )";
+
+    if (!query.prepare(sql)) {
+        m_lastError = query.lastError().text();
+        qWarning() << "准备loadMessages SQL失败:" << m_lastError;
+        qWarning() << "SQL:" << sql;
+        return messages;
+    }
+
+    query.bindValue(":peer_id", peerId);
+    query.bindValue(":limit", limit);
+
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        qWarning() << "执行loadMessages失败:" << m_lastError;
+        return messages;
+    }
+
+    //把查询出来的每一行消息记录，转换成QVariantMap
+    while (query.next()) {
+        QVariantMap message;
+
+        message["messageId"] = query.value(0).toLongLong();
+        message["peerId"] = query.value(1).toString();
+        message["fromMe"] = query.value(2).toInt() != 0;
+        message["content"] = query.value(3).toString();
+        message["createdAt"] = query.value(4).toString();
+
+        messages.append(message);
+    }
+
+    return messages;
+
 }

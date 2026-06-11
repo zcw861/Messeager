@@ -7,6 +7,8 @@
 //         *新增：读取用户列表、新增用户
 //     [v0.1.2] HeZhiyuan    2026-06-09 22:37:04
 //         *新增：聊天消息保存
+//     [v0.1.2] HeZhiyuan    2026-06-11 17:11:07
+//         *新增：读取历史记录
 #pragma once
 
 #include <QObject>
@@ -28,7 +30,7 @@ public:
     QVariantList loadPeers();
     bool upsertPeer(const QString &peerId,const QString &username,const QString &ip,bool online);
     bool saveMessage(const QString &peerId,bool fromMe,const QString &content);
-
+    QVariantList loadMessages(const QString &peerId, int limit = 100);
 private:
     bool execSql(const QString &sql);
 
