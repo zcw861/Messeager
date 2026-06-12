@@ -9,6 +9,8 @@
 //         * 用c++进行封装，提供信号，与qml进行交互
 //     [v0.1.3]  ZhouChengWei   2026-06-11 22:22:08
 //         * 添加了离线检测以及清理离线功能
+//     [v0.1.4]  ZhouChengWei   2026-06-12 11:44:33
+//         * 添加了清理旧的socket连接，防止下次运行时导致的tcp bind fail而收不到消息
 
 #include "privatechat.h"
 
@@ -39,6 +41,9 @@ PrivateChat::~PrivateChat()
     }
     if(m_serverThread.joinable()){
         m_serverThread.join();
+    }
+    if (m_cleanThread.joinable()) {
+        m_cleanThread.join();
     }
 }
 
@@ -199,16 +204,21 @@ void PrivateChat::listenThread()
 }
 
 void PrivateChat::tcpServerThread()
-{
+{ 
     int serverfd = socket(PF_INET, SOCK_STREAM, 0);
     if(serverfd < 0){
         perror("tcp server socket create fail");
         return;
     }
 
+    //清理之前的旧连接
+    int reuse1 = 1;
+    setsockopt(serverfd, SOL_SOCKET, SO_REUSEADDR, &reuse1, sizeof(reuse1));
+    setsockopt(serverfd, SOL_SOCKET, SO_REUSEPORT, &reuse1, sizeof(reuse1));
+
     //清除bind超时错误
-    int reuse = 1;
-    setsockopt(serverfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    int reuse2 = 1;
+    setsockopt(serverfd, SOL_SOCKET, SO_REUSEADDR, &reuse2, sizeof(reuse2));
 
     sockaddr_in address{};
     address.sin_family = AF_INET;

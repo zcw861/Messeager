@@ -4,16 +4,16 @@ function(_qt_add_executable target)
     qt_add_executable(${target})
 endfunction()
 
-project(Messager VERSION 0.1 LANGUAGES CXX)
+project(IPMSG VERSION 0.1 LANGUAGES CXX)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets CanvasPainter)
 qt_standard_project_setup()
 
-_qt_add_executable(Messager)
+_qt_add_executable(IPMSG)
 
-target_compile_features(Messager PRIVATE cxx_std_23)
+target_compile_features(IPMSG PRIVATE cxx_std_23)
 
-target_sources(Messager
+target_sources(IPMSG
     PRIVATE FILE_SET cxx_modules TYPE CXX_MODULES FILES
         # math.cppm           # 模块文件
     PRIVATE
@@ -23,30 +23,30 @@ target_sources(Messager
         main.qml
 )
 
-# source_group("Messager", FILES  # 模块文件的分组
+# source_group("IPMSG", FILES  # 模块文件的分组
 #    math.cppm
 #)
 
-target_link_libraries(Messager
+target_link_libraries(IPMSG
     PRIVATE
         Qt6::Widgets
         Qt6::CanvasPainter
 )
 
-set_target_properties(Messager PROPERTIES
+set_target_properties(IPMSG PROPERTIES
     AUTORCC TRUE
     WIN32_EXECUTABLE TRUE
 )
 
 include(GNUInstallDirs)
-set(CMAKE_INSTALL_PREFIX "/opt/Messager" CACHE PATH "Install path prefix" FORCE)
-install(TARGETS Messager
+set(CMAKE_INSTALL_PREFIX "/opt/IPMSG" CACHE PATH "Install path prefix" FORCE)
+install(TARGETS IPMSG
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 qt_generate_deploy_app_script(
-    TARGET Messager
+    TARGET IPMSG
     OUTPUT_SCRIPT deploy_script
     NO_UNSUPPORTED_PLATFORM_ERROR
 )
