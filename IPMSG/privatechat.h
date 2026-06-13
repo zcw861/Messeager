@@ -8,7 +8,10 @@
 //         * 将0.1.0版本的posix socket函数封装为c++，提供给qml进行交互
 //     [v0.1.2] ZhouChengWei    2026-06-11 22:19:35
 //         * 添加了离线检测以及离线清理功能
-
+//     [v0.1.2] HeZhiyuan    2026-06-13 14:02:50
+//         * 移除start()和sendMessageToUser()的Q_INVOKABLE。
+//           PrivateChat不再直接暴露给QML。
+//           网络调用统一由AppController转发。
 #ifndef PRIVATECHAT_H
 #define PRIVATECHAT_H
 
@@ -40,8 +43,8 @@ public:
 
     QVariantList onlineUsers() const;
 
-    Q_INVOKABLE void start(const QString &userName);    //启动程序
-    Q_INVOKABLE void sendMessageToUser(const QString &ip, const QString &msg);  //发送消息
+    void start(const QString &userName);    //启动程序
+    void sendMessageToUser(const QString &ip, const QString &msg);  //发送消息
 
 signals:
     void onlineUsersChanged();  //通知在线用户变化

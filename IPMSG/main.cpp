@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
 
     //把c++对象暴露给QML
-    engine.rootContext()->setContextProperty("privateChat", &privateChat);
+    // engine.rootContext()->setContextProperty("privateChat", &privateChat);
 
     //加载主QML文件
     const QUrl url = QUrl::fromLocalFile("../../main.qml");
