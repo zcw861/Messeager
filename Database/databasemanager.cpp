@@ -14,6 +14,11 @@
 //         * 增加saveMessage的失败检查
 //     [v0.1.2] HeZhiyuan    2026-06-11 20:56:33
 //         * 修改读取历史记录逻辑，修改messages表建立的索引
+//     [v0.1.2] HeZhiyuan    2026-06-13 13:18:48
+//         * 修改构造函数
+//           修复open()未使用m_connectionName的问题
+//           新增：析构函数、增加在线用户事务同步功能
+//           修改：用户列表调整为在线优先、用户名排序
 #include "databasemanager.h"
 
 #include <QDir>
@@ -23,14 +28,40 @@
 #include <QStandardPaths>
 #include <QVariantMap>
 #include <QVariant>
+#include <QUuid>
 
 DatabaseManager::DatabaseManager(QObject *parent)
-    : QObject(parent)
-{}
+    : QObject(parent), m_connectionName(QStringLiteral("messager_connection_") +
+                       QUuid::createUuid().toString(QUuid::WithoutBraces))
+{}//使每个DatabaseManager都有独立的连接名，不会直接覆盖同名连接
+
+DatabaseManager::~DatabaseManager()
+{
+    const QString connectionName = m_db.connectionName();
+
+    if (m_db.isValid()) {m_db.close();}
+
+    //必须先清空当前QSqlDatabase句柄，
+    //再从Qt的连接池中删除连接。
+    m_db = QSqlDatabase();
+
+    if (!connectionName.isEmpty()) {QSqlDatabase::removeDatabase(connectionName);}
+}
 
 //打开 SQLite 数据库文件。
 bool DatabaseManager::open()
 {
+    if (m_db.isOpen()) {
+        return true;
+    }
+
+    m_lastError.clear();
+
+    if (!QSqlDatabase::isDriverAvailable(QStringLiteral("QSQLITE"))) {
+        m_lastError = QStringLiteral("当前没有可用的QSQLITE驱动");
+        return false;
+    }
+
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 
     if (!QDir().mkpath(dataDir)) {
@@ -40,7 +71,7 @@ bool DatabaseManager::open()
 
     m_databasePath = dataDir + "/messager.db";
 
-    m_db = QSqlDatabase::addDatabase("QSQLITE", "messager_connection");
+    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
     m_db.setDatabaseName(m_databasePath);
 
     if (!m_db.open()) {
@@ -154,8 +185,8 @@ QVariantList DatabaseManager::loadPeers()
     const QString sql = R"(
         SELECT peer_id, username, ip, online, updated_at
         FROM peers
-        ORDER BY peer_id ASC
-    )";
+        ORDER BY online DESC, username COLLATE NOCASE ASC
+    )";//这样在线用户优先显示，同一状态下按用户名排序
 
     if (!query.exec(sql)) {
         m_lastError = query.lastError().text();
@@ -352,4 +383,89 @@ QVariantList DatabaseManager::loadMessages(const QString &peerId, int limit)
 
     return messages;
 
+}
+
+//增加在线用户同步接口同时保留历史用户和离线状态
+bool DatabaseManager::synchronizePeers(const QVariantList &onlinePeers)
+{
+    if (!m_db.isOpen()) {
+        m_lastError = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    //保证“全部标记离线”和“重新标记在线”
+    //要么全部成功，要么全部回滚。
+    if (!m_db.transaction()) {
+        m_lastError = m_db.lastError().text();
+        return false;
+    }
+
+    QSqlQuery markOfflineQuery(m_db);
+
+    if (!markOfflineQuery.exec(R"(
+        UPDATE peers
+        SET online = 0,updated_at = CURRENT_TIMESTAMP
+        WHERE online <> 0
+    )")) {
+        m_lastError = markOfflineQuery.lastError().text();
+        m_db.rollback();
+        return false;
+    }
+
+    QSqlQuery upsertQuery(m_db);
+
+    const QString sql = R"(
+        INSERT INTO peers(peer_id, username, ip, online, updated_at)
+        VALUES(:peer_id, :username, :ip, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT(peer_id) DO UPDATE SET
+            username = excluded.username,
+            ip = excluded.ip,
+            online = 1,
+            updated_at = CURRENT_TIMESTAMP
+    )";
+
+    if (!upsertQuery.prepare(sql)) {
+        m_lastError = upsertQuery.lastError().text();
+        m_db.rollback();
+        return false;
+    }
+
+    for (const QVariant &item : onlinePeers) {
+        const QVariantMap peer = item.toMap();
+
+        const QString peerId =
+            peer.value(QStringLiteral("peerId")).toString().trimmed();
+
+        const QString username =
+            peer.value(QStringLiteral("username")).toString().trimmed();
+
+        const QString ip =
+            peer.value(QStringLiteral("ip")).toString().trimmed();
+
+        if (peerId.isEmpty() || username.isEmpty() || ip.isEmpty()) {
+            m_lastError = QStringLiteral("在线用户数据不完整");
+            m_db.rollback();
+            return false;
+        }
+
+        upsertQuery.bindValue(QStringLiteral(":peer_id"), peerId);
+        upsertQuery.bindValue(QStringLiteral(":username"), username);
+        upsertQuery.bindValue(QStringLiteral(":ip"), ip);
+
+        if (!upsertQuery.exec()) {
+            m_lastError = upsertQuery.lastError().text();
+            m_db.rollback();
+            return false;
+        }
+
+        upsertQuery.finish();
+    }
+
+    if (!m_db.commit()) {
+        m_lastError = m_db.lastError().text();
+        m_db.rollback();
+        return false;
+    }
+
+    return true;
 }

@@ -9,6 +9,8 @@
 //         *新增：聊天消息保存
 //     [v0.1.2] HeZhiyuan    2026-06-11 17:11:07
 //         *新增：读取历史记录
+//     [v0.1.2] HeZhiyuan    2026-06-13 13:15:36
+//         *修改数据库层文件路径，将database改为动态库
 #pragma once
 
 #include <QObject>
@@ -16,12 +18,16 @@
 #include <QSqlDatabase>
 #include <QVariantList>
 
-class DatabaseManager : public QObject
+#include "database_global.h"
+
+class DATABASE_EXPORT DatabaseManager : public QObject
 {
     Q_OBJECT
 
 public:
     explicit DatabaseManager(QObject *parent = nullptr);
+
+    ~DatabaseManager() override;
 
     bool open();
     bool initSchema();
@@ -31,6 +37,7 @@ public:
     bool upsertPeer(const QString &peerId,const QString &username,const QString &ip,bool online);
     bool saveMessage(const QString &peerId,bool fromMe,const QString &content);
     QVariantList loadMessages(const QString &peerId, int limit = 100);
+    bool synchronizePeers(const QVariantList &onlinePeers);
 private:
     bool execSql(const QString &sql);
 
@@ -38,4 +45,5 @@ private:
     QSqlDatabase m_db;
     QString m_databasePath;
     QString m_lastError;
+    QString m_connectionName;
 };
