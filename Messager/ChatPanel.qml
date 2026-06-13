@@ -20,6 +20,9 @@
 //         * 增加聊天消息前端显示功能，发送消息后，当前聊天窗口会立即显示自己发送的内容。
 //     [v0.1.2] HeZhiyuan    2026-06-07 13:57:18
 //         * 修改部分ui颜色
+//     [v0.1.2] HeZhiyuan    2026-06-13 17:47:01
+//         * 消息列表改为接收AppController提供的QVariantList。
+//           delegate使用modelData.fromMe和modelData.content。
 import QtQuick
 import QtQuick.Controls
 
@@ -109,12 +112,20 @@ Rectangle{
             }
 
             delegate: Item {
+                required property var modelData
+
+                readonly property bool fromMe:
+                    modelData.fromMe
+
+                readonly property string content:
+                    modelData.content
+
                 width: messageList.width
                 height: messageBubble.height + 8
 
                 //使用 required property 接收 ListModel 角色数据
-                required property bool fromMe
-                required property string content
+                // required property bool fromMe
+                // required property string content
 
                 Rectangle {
                     id: messageBubble
@@ -133,7 +144,7 @@ Rectangle{
 
                         text: content
                         font.pixelSize: 14
-                        color: "#FFFFFF"
+                        color: fromMe ? "#FFFFFF" : "#222222"
 
                         width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
                         wrapMode: Text.Wrap

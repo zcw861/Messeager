@@ -1,7 +1,7 @@
+//     [v0.1.2] HeZhiyuan    2026-06-13 17:44:06
+//         * 移除 main.cpp 对 DatabaseManager 的直接创建和初始化
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
-
-#include "databasemanager.h"
 
 int main(int argc, char *argv[])
 {
@@ -9,20 +9,6 @@ int main(int argc, char *argv[])
 
     QCoreApplication::setOrganizationName("Messager");
     QCoreApplication::setApplicationName("Messager");
-
-    DatabaseManager database;
-
-    if (!database.open()) {
-        qWarning() << "数据库打开失败:" << database.lastError();
-        return -1;
-    }
-
-    if (!database.initSchema()) {
-        qWarning() << "数据库初始化失败:" << database.lastError();
-        return -1;
-    }
-
-    qInfo() << "SQLite 数据库路径:" << database.databasePath();
 
     QQmlApplicationEngine engine;
     QObject::connect(
