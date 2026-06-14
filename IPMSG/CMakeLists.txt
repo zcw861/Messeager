@@ -10,6 +10,8 @@ qt_standard_project_setup()
 add_library(IPMSG STATIC
     privatechat.h
     privatechat.cpp
+    translatefile.h
+    translatefile.cpp
 )
 
 target_compile_features(IPMSG PRIVATE cxx_std_23)

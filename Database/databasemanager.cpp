@@ -1,24 +1,26 @@
 //     [v0.1.2] HeZhiyuan    2026-06-07 21:43:58
 //         *实现基础的数据库操作：打开、初始化、打印路径和报错、执行sql语句
-//     [v0.1.2] HeZhiyuan    2026-06-08 15:44:38
+//     [v0.1.3] HeZhiyuan    2026-06-08 15:44:38
 //         *新增：读取用户列表、新增用户
-//     [v0.1.2] HeZhiyuan    2026-06-08 21:14:38
+//     [v0.1.4] HeZhiyuan    2026-06-08 21:14:38
 //         * 在open()里增加：在每次打开连接后主动开启外键检查
 //          *修改initSchema()：初始化数据库表1.peers：保存局域网用户信息，
 //          *2.messages：保存与某个用户相关的聊天消息，3.给消息表加索引，加快按用户读取聊天记录的速度
-//     [v0.1.2] HeZhiyuan    2026-06-09 22:56:40
+//     [v0.1.5] HeZhiyuan    2026-06-09 22:56:40
 //         * 新增消息保存
-//     [v0.1.2] HeZhiyuan    2026-06-11 17:12:42
+//     [v0.1.6] HeZhiyuan    2026-06-11 17:12:42
 //         * 新增读取历史记录
-//     [v0.1.2] HeZhiyuan    2026-06-11 20:25:06
+//     [v0.1.7] HeZhiyuan    2026-06-11 20:25:06
 //         * 增加saveMessage的失败检查
-//     [v0.1.2] HeZhiyuan    2026-06-11 20:56:33
+//     [v0.1.8] HeZhiyuan    2026-06-11 20:56:33
 //         * 修改读取历史记录逻辑，修改messages表建立的索引
-//     [v0.1.2] HeZhiyuan    2026-06-13 13:18:48
+//     [v0.1.9] HeZhiyuan    2026-06-13 13:18:48
 //         * 修改构造函数
 //           修复open()未使用m_connectionName的问题
 //           新增：析构函数、增加在线用户事务同步功能
 //           修改：用户列表调整为在线优先、用户名排序
+//     [v0.1.10] HeZhiyuan    2026-06-14 15:57:04
+//         * 新增：删除用户
 #include "databasemanager.h"
 
 #include <QDir>
@@ -262,6 +264,51 @@ bool DatabaseManager::upsertPeer(const QString &peerId,
         qWarning() << "执行upsertPeer失败" << m_lastError;
         return false;
     }
+    return true;
+}
+
+//删除一个用户，因为messages.peer_id使用了ON DELETE CASCADE，在删除 peers 记录时，对应聊天记录由SQLite删除。
+bool DatabaseManager::deletePeer(const QString &peerId)
+{
+    m_lastError.clear();
+
+    if (!m_db.isOpen()) {
+        m_lastError = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    const QString normalizedPeerId = peerId.trimmed();
+
+    if (normalizedPeerId.isEmpty()) {
+        m_lastError = QStringLiteral("peerId 为空");
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+
+    const QString sql = R"(
+        DELETE FROM peers
+        WHERE peer_id = :peer_id
+    )";
+
+    if (!query.prepare(sql)) {
+        m_lastError = query.lastError().text();
+        qWarning() << "准备 deletePeer SQL 失败:"
+                   << m_lastError;
+        return false;
+    }
+
+    query.bindValue(
+        QStringLiteral(":peer_id"),
+        normalizedPeerId);
+
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        qWarning() << "执行 deletePeer 失败:"
+                   << m_lastError;
+        return false;
+    }
+
     return true;
 }
 

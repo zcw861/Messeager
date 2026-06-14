@@ -105,6 +105,42 @@ void AppController::clearConversation()
     }
 }
 
+bool AppController::deletePeer(const QString &peerId)
+{
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化"));
+        return false;
+    }
+
+    const QString normalizedPeerId = peerId.trimmed();
+
+    if (normalizedPeerId.isEmpty()) {
+        reportError(QStringLiteral("要删除的用户ID为空"));
+        return false;
+    }
+
+    //删除数据库记录。
+    if (!m_database.deletePeer(normalizedPeerId)) {
+        reportError(
+            QStringLiteral("删除用户失败：")
+            + m_database.lastError());
+        return false;
+    }
+
+    //如果删除的是当前聊天对象，同时清空控制器中的会话状态。
+    if (m_currentPeerId == normalizedPeerId) {
+        clearConversation();
+    }
+
+    //重新从数据库读取用户列表。
+    refreshPeers();
+
+    //通知 QML 清理当前选中状态。
+    emit peerDeleted(normalizedPeerId);
+
+    return true;
+}
+
 void AppController::sendMessage(const QString &peerId,
                                 const QString &username,
                                 const QString &ip,

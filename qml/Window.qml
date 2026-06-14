@@ -15,9 +15,12 @@
 //           删除已移除的chatMessageModel引用。
 //     [v0.1.4] HeZhiyuan    2026-06-14 15:06:58
 //         * 修改模块注册
+//
 //     [v0.1.5] JiangFan    2026-06-14
 //         * 修复全局焦点处理bug
-
+//
+//     [v0.1.5] HeZhiyuan    2026-06-14 16:14:29
+//         * 删除成功后，清理QML的当前用户状态
 import QtQuick
 import QtQuick.Controls
 import se.qt.messager
@@ -41,6 +44,22 @@ ApplicationWindow {
        id: appController
        Component.onCompleted: {
            appController.initialize("JF")
+       }
+       //删除成功后，再清理QML的当前用户状态。
+       onPeerDeleted: function(peerId) {
+           if (root.currentPeerId !== peerId)
+               return
+
+           root.currentPeerId = ""
+           root.currentPeerName = ""
+           root.currentPeerIp = ""
+
+           inputPanel.clear()
+
+           console.log("已删除当前聊天用户:", peerId)
+       }
+       onOperationFailed: function(message) {
+           console.error("操作失败:", message)
        }
    }
 
@@ -121,6 +140,10 @@ ApplicationWindow {
                //清除控制器当前聊天对象和前端消息属性。
                appController.clearConversation()
                console.log("Main.qml 已回到初始界面")
+           }
+
+           onPeerDeleteRequested: function(peerId) {
+               appController.deletePeer(peerId)
            }
 
            //接收PeerPanel发送的  搜索框改变  的信号

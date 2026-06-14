@@ -40,9 +40,11 @@
 * * 新增peerModel外部模型属性。
 * * 使用QVariantList/QVariantMap的modelData读取用户数据。
 * * 增加左键限制和ReleaseWithinBounds点击策略。
+* *[v0.2.5] HeZhiyuan 2026-06-14
+* * 增加删除请求信号
+* *[v0.2.6] ZhouChengWei 2026-06-14
+* * 修改了搜索栏布局
 */
-
-
 import QtQuick
 import QtQuick.Controls
 
@@ -53,7 +55,7 @@ Rectangle {
     //color: "#F7F8FA"
 
     //后续交给 PeerModel 或 AppController 处理
-    //Main.qml给，控制左侧用户高亮
+    //Window.qml给，控制左侧用户高亮
     property string currentPeerId: ""
 
     //当前搜索关键字,搜索框变化时更新，过滤左侧用户列表
@@ -62,14 +64,21 @@ Rectangle {
     //后续交给PeerModel或AppController处理
     signal searchTextChanged(string keyword)
 
-    //点击左侧用户后，向 Main.qml 通知当前选中的用户
+    //点击左侧用户后，向 Window.qml 通知当前选中的用户
     signal peerSelected(string peerId, string username, string ip)
 
-    //点击当前用户时，通知 Main.qml 关闭聊天窗口
+    //点击当前用户时，通知 Window.qml 关闭聊天窗口
     signal peerClosed()
+
+    //用户确认删除后，通知 Window.qml。
+    signal peerDeleteRequested(string peerId)
 
     //增加外部模型属性
     property var peerModel: []
+
+    //当前右键选中的待删除用户。
+    property string pendingDeletePeerId: ""
+    property string pendingDeletePeerName: ""
 
     //判断某个用户是否匹配当前搜索关键字
     function matchSearch(username, ip)
@@ -80,11 +89,8 @@ Rectangle {
         var keyword = searchKeyword.toLowerCase()
 
         //用户名 / ip地址 里包含keyword
-        return username.toLowerCase().indexOf(keyword) !== -1
-                || ip.toLowerCase().indexOf(keyword) !== -1
+        return username.toLowerCase().indexOf(keyword) !== -1 || ip.toLowerCase().indexOf(keyword) !== -1
     }
-
-
 
     Text {
         id: peerTitle
@@ -95,7 +101,7 @@ Rectangle {
 
         anchors.left: parent.left
         anchors.leftMargin: 10   //左边留10px空隙差不多
-        anchors.top: parent.top  //顶部一样
+        anchors.top: searchField.bottom  //顶部一样
         anchors.topMargin: 10
         }
 
@@ -111,7 +117,7 @@ Rectangle {
 
         anchors.left: parent.left
         anchors.leftMargin: 10
-        anchors.top: peerTitle.bottom       //标题框下方
+        anchors.top: parent.top       //标题框下方
         anchors.topMargin: 10
 
         //Search background
@@ -156,7 +162,7 @@ Rectangle {
 
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: searchField.bottom
+        anchors.top: peerTitle.bottom
         anchors.topMargin: 12
         anchors.bottom: parent.bottom
 
@@ -281,6 +287,34 @@ Rectangle {
                     console.log("选择用户:", peerId, username, ip)
                 }
             }
+
+            //打开用户操作菜单。
+            TapHandler {
+                id: rightTapHandler
+
+                acceptedButtons: Qt.RightButton
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                onTapped: function(eventPoint, button) {
+                    peerPanel.clearSearchFocus()
+
+                    //记录当前右键点击的用户。
+                    peerPanel.pendingDeletePeerId = peerItem.peerId
+                    peerPanel.pendingDeletePeerName = peerItem.username
+
+                    //eventPoint.position 是相对于 peerItem 的坐标，
+                    //这里转换为相对于 peerPanel 的坐标。
+                    const menuPosition = peerItem.mapToItem(
+                        peerPanel,
+                        eventPoint.position.x,
+                        eventPoint.position.y
+                    )
+
+                    peerContextMenu.x = menuPosition.x
+                    peerContextMenu.y = menuPosition.y
+                    peerContextMenu.open()
+                }
+            }
         }
 
 
@@ -292,6 +326,21 @@ Rectangle {
             }
         }
 
+    }
+
+    //用户列表右键菜单。
+    Menu {
+        id: peerContextMenu
+
+        width: 130
+
+        MenuItem {
+            text: qsTr("删除用户")
+
+            onTriggered: {
+                deletePeerDialog.open()
+            }
+        }
     }
 
     //创建群聊按钮
@@ -326,6 +375,7 @@ Rectangle {
             }
         }
 
+
         //创建群聊/添加好友等功能的菜单
         Menu{
             id: featureSet
@@ -355,4 +405,54 @@ Rectangle {
             id: inviteUserInterfaceLoader
             source: "InviteUserInterface.qml"
         }
+
+    Dialog {
+        id: deletePeerDialog
+
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+
+        implicitWidth: 360
+        modal: true
+        title: qsTr("删除用户")
+
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        contentItem: Text {
+            text: qsTr("确定要删除用户“%1”吗?\n聊天记录也会清除")
+                  .arg(peerPanel.pendingDeletePeerName)
+
+            wrapMode: Text.Wrap
+            color: "#333333"
+            font.pixelSize: 14
+        }
+
+        onOpened: {
+            const deleteButton =
+                    deletePeerDialog.standardButton(Dialog.Ok)
+
+            const cancelButton =
+                    deletePeerDialog.standardButton(Dialog.Cancel)
+
+            if (deleteButton)
+                deleteButton.text = qsTr("删除")
+
+            if (cancelButton)
+                cancelButton.text = qsTr("取消")
+        }
+
+        onAccepted: {
+            if (peerPanel.pendingDeletePeerId.length === 0)
+                return
+
+            peerPanel.peerDeleteRequested(
+                peerPanel.pendingDeletePeerId
+            )
+        }
+
+        onClosed: {
+            peerPanel.pendingDeletePeerId = ""
+            peerPanel.pendingDeletePeerName = ""
+        }
+    }
 }
