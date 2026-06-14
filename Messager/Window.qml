@@ -5,7 +5,7 @@
 //
 //     [v0.1.2] HeZhiyuan    2026-06-05 21:22:32
 //         * 加上底部输入框组件。
-//     [v0.1.2] HeZhiyuan    2026-06-13 16:45:05
+//     [v0.1.3] HeZhiyuan    2026-06-13 16:45:05
 //         * 新增AppController QML对象。
 //           用户模型改为appController.peers。
 //           消息模型改为appController.messages。
@@ -13,10 +13,11 @@
 //           选择用户时调用appController.selectPeer()读取历史消息。
 //           关闭聊天时调用appController.clearConversation()。
 //           删除已移除的chatMessageModel引用。
+//     [v0.1.4] HeZhiyuan    2026-06-14 15:06:58
+//         * 修改模块注册
 import QtQuick
 import QtQuick.Controls
 import se.qt.messager
-
 ApplicationWindow {
    id: root
 
@@ -36,12 +37,11 @@ ApplicationWindow {
    AppController {
        id: appController
        Component.onCompleted: {
-           //两台测试设备应使用不同昵称。
-           appController.initialize("zcw")
+           appController.initialize("lll")
        }
    }
 
-   //先把消息显示出来，后续再接客户端网络发送逻辑
+   //消息显示
    function trySendMessage(content) {
        content = content.trim()
 
@@ -69,7 +69,7 @@ ApplicationWindow {
            anchors.left: parent.left
            anchors.top: parent.top
            anchors.bottom: parent.bottom
-           //把 Main.qml 当前选中的用户 id 传给 PeerPanel，用于左侧高亮
+           //把Main.qml当前选中的用户id传给PeerPanel，用于左侧高亮
            currentPeerId: root.currentPeerId
            peerModel: appController.peers
 

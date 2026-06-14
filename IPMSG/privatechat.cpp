@@ -11,8 +11,8 @@
 //         * 添加了离线检测以及清理离线功能
 //     [v0.1.4]  ZhouChengWei   2026-06-12 11:44:33
 //         * 添加了清理旧的socket连接，防止下次运行时导致的tcp bind fail而收不到消息
-//     [v0.1.5] ZhouChengWei    2026-06-14 14:46:58
-//         * 添加了关闭各种阻塞调用，防止每次重启发消息会导致第一次发送消息接收不到的bug
+//     [v0.1.5]  ZhouChengWei    2026-06-14 15:37:05
+//         * 添加了关闭阻塞调用，防止程序重启发送消息时会导致收不到的bug
 
 #include "privatechat.h"
 
@@ -55,15 +55,6 @@ PrivateChat::~PrivateChat()
     if (m_cleanThread.joinable()) {
         m_cleanThread.join();
     }
-
-    if (m_tcp_serverFd != -1) {
-        close(m_tcp_serverFd);
-        m_tcp_serverFd = -1;
-    }
-    if (m_udp_listenFd != -1) {
-        close(m_udp_listenFd );
-        m_udp_listenFd  = -1;
-    }
 }
 
 QVariantList PrivateChat::onlineUsers() const
@@ -102,7 +93,7 @@ void PrivateChat::sendMessageToUser(const QString &ip, const QString &msg)
     std::string msgStr = msg.toStdString();
 
     std::thread([ipStr, msgStr](){
-        int sendfd = socket(PF_INET, SOCK_STREAM, 0);
+        int sendfd = ::socket(PF_INET, SOCK_STREAM, 0);
         if(sendfd < 0) {
             perror("tcp send socket create fail");
             return;
@@ -158,7 +149,7 @@ void PrivateChat::broadcastThread()
     while(m_running){
         sendto(listenfd, m_localName.c_str(), m_localName.size(), 0,
                (struct sockaddr*)&address, sizeof(address));
-        sleep(2);  //每2秒广播一次
+        sleep(2);  // 每2秒广播一次
     }
 
     close(listenfd);
