@@ -6,8 +6,10 @@
 //          接收消息后保存对方聊天记录。
 //          从数据库刷新用户列表和历史消息。
 //
-//     [v0.1.2] JiangFan    2026-06-14
+//     [v0.1.3] JiangFan    2026-06-14
 //          *增加文件发送功能(待完善)
+//     [v0.1.3] ZhouChengWei     2026-06-14 21:27:37
+//         * 处理了因为给自己发送消息而接收导致显示2次的问题
 
 #include "appcontroller.h"
 
@@ -172,6 +174,18 @@ void AppController::sendMessage(const QString &peerId,
         return;
     }
 
+    //如果目标是自己，直接本地保存，不经过网络
+    if (normalizedIp == m_privateChat.localIp()) {
+        if (!m_database.saveMessage(normalizedPeerId, true, normalizedContent)) {
+            reportError(QStringLiteral("保存消息失败：") + m_database.lastError());
+            return;
+        }
+        if (m_currentPeerId == normalizedPeerId) {
+            refreshMessages();
+        }
+        return;
+    }
+
     //当前网络接口是异步发送，调用返回表示消息已交给发送线程，
     //暂时不代表对方一定已经收到。
     m_privateChat.sendMessageToUser(normalizedIp, normalizedContent);
@@ -282,6 +296,11 @@ void AppController::handleMessageReceived(const QString &fromName,
                                           const QString &fromIp,
                                           const QString &message)
 {
+    //如果是本机Ip直接返回
+    if (fromIp == m_privateChat.localIp()) {
+        return;
+    }
+
     const QString normalizedName = fromName.trimmed();
     const QString normalizedIp = fromIp.trimmed();
     const QString normalizedMessage = message.trimmed();

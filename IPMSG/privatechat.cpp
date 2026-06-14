@@ -13,6 +13,8 @@
 //         * 添加了清理旧的socket连接，防止下次运行时导致的tcp bind fail而收不到消息
 //     [v0.1.5]  ZhouChengWei    2026-06-14 15:37:05
 //         * 添加了关闭阻塞调用，防止程序重启发送消息时会导致收不到的bug
+//     [v0.1.6]  ZhouChengWei   2026-06-14 21:31:48
+//         * 处理了因为给自己发送消息而接收导致显示2次的问题
 
 #include "privatechat.h"
 
@@ -77,15 +79,31 @@ void PrivateChat::start(const QString &userName)
     if(m_running) return;  //防止重复启动
 
     m_localName = userName.toStdString();
+
     //获取本机局域网IP
-    char hostname[256];
-    gethostname(hostname, sizeof(hostname));
-    struct hostent *host = gethostbyname(hostname);
-    if (host && host->h_addr_list[0]) {
-        m_localIp = inet_ntoa(*(struct in_addr*)host->h_addr_list[0]);
-    } else {
+    int tmpSock = socket(PF_INET, SOCK_DGRAM, 0);
+    if (tmpSock < 0) {
         m_localIp = "127.0.0.1";
+    } else {
+        sockaddr_in remote{};
+        remote.sin_family = AF_INET;
+        remote.sin_port = htons(53);          //任意外部端口
+        inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr);  //任意外部 IP
+        // connect绑定路由，以此来获取本机IP
+        if (::connect(tmpSock, (sockaddr*)&remote, sizeof(remote)) == 0) {
+            sockaddr_in localAddr{};
+            socklen_t addrLen = sizeof(localAddr);
+            if (getsockname(tmpSock, (sockaddr*)&localAddr, &addrLen) == 0) {
+                m_localIp = inet_ntoa(localAddr.sin_addr);
+            } else {
+                m_localIp = "127.0.0.1";
+            }
+        } else {
+            m_localIp = "127.0.0.1";
+        }
+        close(tmpSock);
     }
+
     m_running = true;
 
     //启动四个工作线程
@@ -95,7 +113,6 @@ void PrivateChat::start(const QString &userName)
     m_cleanThread = std::thread(&PrivateChat::cleanOfflineThread, this);
 
     std::cout << "信使聊天服务已启动，用户: " << m_localName << std::endl;
-    emit localIpChanged();
 }
 
 void PrivateChat::sendMessageToUser(const QString &ip, const QString &msg)
@@ -338,4 +355,8 @@ void PrivateChat::cleanOfflineThread(){
             }, Qt::QueuedConnection);
         }
     }
+}
+
+QString PrivateChat::localIp() const {
+    return QString::fromStdString(m_localIp);
 }

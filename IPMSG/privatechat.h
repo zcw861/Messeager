@@ -16,6 +16,8 @@
 //         * 添加了用于关闭阻塞调用的文件描述符
 //     [v0.1.5] ZhouChengWei    2026-06-14 17:29:06
 //         * 添加了用于标识本地ip的变量
+//     [v0.1.6] ZhouChengWei    2026-06-14 21:32:12
+//         * 添加了获取本机IP的函数
 
 #ifndef PRIVATECHAT_H
 #define PRIVATECHAT_H
@@ -41,7 +43,6 @@ class PrivateChat : public QObject
     Q_OBJECT
     //通知在线用户的前后端交互
     Q_PROPERTY(QVariantList onlineUsers READ onlineUsers NOTIFY onlineUsersChanged)
-    Q_PROPERTY(QString localIp READ localIp NOTIFY localIpChanged)
 
 public:
     explicit PrivateChat(QObject *parent = nullptr);
@@ -52,10 +53,11 @@ public:
     void start(const QString &userName);    //启动程序
     void sendMessageToUser(const QString &ip, const QString &msg);  //发送消息
 
+    QString localIp() const;    //提供本机IP
+
 signals:
     void onlineUsersChanged();  //通知在线用户变化
     void messageReceived(const QString &fromName, const QString &fromIp, const QString &message);   //通知收到消息
-    void localIpChanged();
 
 private:
     void broadcastThread(); //广播线程
@@ -65,8 +67,6 @@ private:
 
     //线程安全的信号发射
     void emitMessageReceived(const std::string &name, const std::string &ip, const std::string &msg);
-
-    QString localIp() const { return QString::fromStdString(m_localIp); }
 
     std::unordered_map<std::string, UserInfo> m_peers;  //ip与用户的映射
     mutable std::mutex m_mutex; //锁，用于并发时保护m_peers的资源访问
