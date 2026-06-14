@@ -16,11 +16,11 @@
 * [v0.2.0]    2026-06-03
 * * 实现聊天框的发送消息，增加enter, ctrl + enter事件处理
 */
-//     [v0.1.2] HeZhiyuan    2026-06-05 22:39:59
+//     [v0.2.2] HeZhiyuan    2026-06-05 22:39:59
 //         * 增加聊天消息前端显示功能，发送消息后，当前聊天窗口会立即显示自己发送的内容。
-//     [v0.1.2] HeZhiyuan    2026-06-07 13:57:18
+//     [v0.2.3] HeZhiyuan    2026-06-07 13:57:18
 //         * 修改部分ui颜色
-//     [v0.1.2] HeZhiyuan    2026-06-13 17:47:01
+//     [v0.2.4] HeZhiyuan    2026-06-13 17:47:01
 //         * 消息列表改为接收AppController提供的QVariantList。
 //           delegate使用modelData.fromMe和modelData.content。
 import QtQuick
