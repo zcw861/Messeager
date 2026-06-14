@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QString>
 #include <QVariantList>
+#include <QUrl>
 
 #include <QtQml/qqmlregistration.h>
 
@@ -45,6 +46,11 @@ public:
                                  const QString &username,
                                  const QString &ip,
                                  const QString &content);
+    //发送文件
+    Q_INVOKABLE void sendFile(const QString &peerId,
+                              const QString &username,
+                              const QString &ip,
+                              const QUrl &fileUrl);
 
 signals:
     void peersChanged();

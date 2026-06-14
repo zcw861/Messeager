@@ -15,6 +15,9 @@
 //           删除已移除的chatMessageModel引用。
 //     [v0.1.4] HeZhiyuan    2026-06-14 15:06:58
 //         * 修改模块注册
+//     [v0.1.5] JiangFan    2026-06-14
+//         * 修复全局焦点处理bug
+
 import QtQuick
 import QtQuick.Controls
 import se.qt.messager
@@ -37,7 +40,7 @@ ApplicationWindow {
    AppController {
        id: appController
        Component.onCompleted: {
-           appController.initialize("lll")
+           appController.initialize("JF")
        }
    }
 
@@ -56,6 +59,24 @@ ApplicationWindow {
        )
        console.log("发送给:", root.currentPeerId, root.currentPeerName, "内容:", content)
    }
+
+   //处理文件发送请求
+   function trySendFile(fileUrl) {
+
+      if (root.currentPeerId === "")
+      {
+         console.log("请先选择聊天对象")
+         return
+      }
+
+      if(fileUrl.toString().length === 0)
+      {
+         console.log("文件路径为空")
+         return
+      }
+
+      appController.sendFile(root.currentPeerId, root.currentPeerName, root.currentPeerIp, fileUrl)
+}
 
    Rectangle {
        id: background
@@ -117,7 +138,7 @@ ApplicationWindow {
 
            onTapped: function(eventPoint)
            {
-                      if (!peerPanel.isInSearchField(background, eventPoint.x, eventPoint.y))
+                      if (!peerPanel.isInSearchField(background, eventPoint.position.x, eventPoint.position.y))
                       {
                                  peerPanel.clearSearchFocus()
                       }
@@ -161,6 +182,11 @@ ApplicationWindow {
 
            onSendRequested: function(content) {
                root.trySendMessage(content)
+           }
+
+           //处理文件按钮的点击
+           onFileSendRequested: function(fileUrl) {
+               root.trySendFile(fileUrl)
            }
        }
 
