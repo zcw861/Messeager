@@ -13,35 +13,31 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include "privatechat.h"
-#include "translatefile.h"
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
 
+    //创建后端对象
     PrivateChat privateChat;
 
     QQmlApplicationEngine engine;
 
-    // 先设置 context property，再加载 QML
-    engine.rootContext()->setContextProperty("privateChat", &privateChat);
-    //engine.rootContext()->setContextProperty("translateFile", &translateFile);
+    //把c++对象暴露给QML
+    // engine.rootContext()->setContextProperty("privateChat", &privateChat);
 
+    //加载主QML文件
     const QUrl url = QUrl::fromLocalFile("../../main.qml");
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreated,
         &app,
         [url](QObject *obj, const QUrl &objUrl) {
-            if (!obj && url == objUrl)
-                QCoreApplication::exit(-1);
+            if (!obj && url == objUrl) QCoreApplication::exit(-1);
         },
         Qt::QueuedConnection);
 
     engine.load(url);
-
-    // 文件传输服务在 QML 加载完毕后启动
-    //translateFile.start();
 
     return app.exec();
 }
