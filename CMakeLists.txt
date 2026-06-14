@@ -14,7 +14,7 @@ qt_standard_project_setup(REQUIRES 6.11)
 
 add_subdirectory(Database)
 add_subdirectory(IPMSG)
-add_subdirectory(Messager)
+add_subdirectory(qml)
 
 # target_compile_features(appMessager PRIVATE cxx_std_23)
 # target_link_libraries(appMessager
