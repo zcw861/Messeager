@@ -40,9 +40,9 @@
 * * 新增peerModel外部模型属性。
 * * 使用QVariantList/QVariantMap的modelData读取用户数据。
 * * 增加左键限制和ReleaseWithinBounds点击策略。
+* *[v0.2.5] HeZhiyuan 2026-06-14
+* * 增加删除请求信号
 */
-
-
 import QtQuick
 import QtQuick.Controls
 
@@ -68,8 +68,15 @@ Rectangle {
     //点击当前用户时，通知 Main.qml 关闭聊天窗口
     signal peerClosed()
 
+    //用户确认删除后，通知 Window.qml。
+    signal peerDeleteRequested(string peerId)
+
     //增加外部模型属性
     property var peerModel: []
+
+    //当前右键选中的待删除用户。
+    property string pendingDeletePeerId: ""
+    property string pendingDeletePeerName: ""
 
     //判断某个用户是否匹配当前搜索关键字
     function matchSearch(username, ip)
@@ -281,6 +288,34 @@ Rectangle {
                     console.log("选择用户:", peerId, username, ip)
                 }
             }
+
+            //打开用户操作菜单。
+            TapHandler {
+                id: rightTapHandler
+
+                acceptedButtons: Qt.RightButton
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                onTapped: function(eventPoint, button) {
+                    peerPanel.clearSearchFocus()
+
+                    //记录当前右键点击的用户。
+                    peerPanel.pendingDeletePeerId = peerItem.peerId
+                    peerPanel.pendingDeletePeerName = peerItem.username
+
+                    //eventPoint.position 是相对于 peerItem 的坐标，
+                    //这里转换为相对于 peerPanel 的坐标。
+                    const menuPosition = peerItem.mapToItem(
+                        peerPanel,
+                        eventPoint.position.x,
+                        eventPoint.position.y
+                    )
+
+                    peerContextMenu.x = menuPosition.x
+                    peerContextMenu.y = menuPosition.y
+                    peerContextMenu.open()
+                }
+            }
         }
 
 
@@ -292,6 +327,21 @@ Rectangle {
             }
         }
 
+    }
+
+    //用户列表右键菜单。
+    Menu {
+        id: peerContextMenu
+
+        width: 130
+
+        MenuItem {
+            text: qsTr("删除用户")
+
+            onTriggered: {
+                deletePeerDialog.open()
+            }
+        }
     }
 
     //创建群聊按钮
@@ -326,6 +376,7 @@ Rectangle {
             }
         }
 
+
         //创建群聊/添加好友等功能的菜单
         Menu{
             id: featureSet
@@ -355,4 +406,55 @@ Rectangle {
             id: inviteUserInterfaceLoader
             source: "InviteUserInterface.qml"
         }
+
+    Dialog {
+        id: deletePeerDialog
+
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+
+        modal: true
+        title: qsTr("删除用户")
+
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        contentItem: Text {
+            width: 300
+
+            text: qsTr("确定要删除用户“%1”吗?")
+                  .arg(peerPanel.pendingDeletePeerName)
+
+            wrapMode: Text.Wrap
+            color: "#333333"
+            font.pixelSize: 14
+        }
+
+        onOpened: {
+            const deleteButton =
+                    deletePeerDialog.standardButton(Dialog.Ok)
+
+            const cancelButton =
+                    deletePeerDialog.standardButton(Dialog.Cancel)
+
+            if (deleteButton)
+                deleteButton.text = qsTr("删除")
+
+            if (cancelButton)
+                cancelButton.text = qsTr("取消")
+        }
+
+        onAccepted: {
+            if (peerPanel.pendingDeletePeerId.length === 0)
+                return
+
+            peerPanel.peerDeleteRequested(
+                peerPanel.pendingDeletePeerId
+            )
+        }
+
+        onClosed: {
+            peerPanel.pendingDeletePeerId = ""
+            peerPanel.pendingDeletePeerName = ""
+        }
+    }
 }

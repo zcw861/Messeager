@@ -5,12 +5,14 @@
 //
 //     [v0.1.2] HeZhiyuan    2026-06-08 15:36:22
 //         *新增：读取用户列表、新增用户
-//     [v0.1.2] HeZhiyuan    2026-06-09 22:37:04
+//     [v0.1.3] HeZhiyuan    2026-06-09 22:37:04
 //         *新增：聊天消息保存
-//     [v0.1.2] HeZhiyuan    2026-06-11 17:11:07
+//     [v0.1.4] HeZhiyuan    2026-06-11 17:11:07
 //         *新增：读取历史记录
-//     [v0.1.2] HeZhiyuan    2026-06-13 13:15:36
+//     [v0.1.5] HeZhiyuan    2026-06-13 13:15:36
 //         *修改数据库层文件路径，将database改为动态库
+//     [v0.1.6] HeZhiyuan    2026-06-14 15:52:32
+//         *新增：删除指定用户
 #pragma once
 
 #include <QObject>
@@ -35,6 +37,7 @@ public:
     QString lastError() const;
     QVariantList loadPeers();
     bool upsertPeer(const QString &peerId,const QString &username,const QString &ip,bool online);
+    bool deletePeer(const QString &peerId);    //删除指定用户
     bool saveMessage(const QString &peerId,bool fromMe,const QString &content);
     QVariantList loadMessages(const QString &peerId, int limit = 100);
     bool synchronizePeers(const QVariantList &onlinePeers);

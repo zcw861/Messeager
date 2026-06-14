@@ -8,7 +8,7 @@
 #include <QObject>
 #include <QString>
 #include <QVariantList>
-
+#include <QSet>
 #include <QtQml/qqmlregistration.h>
 
 #include "databasemanager.h"
@@ -41,6 +41,8 @@ public:
 
     Q_INVOKABLE void clearConversation();
 
+    Q_INVOKABLE bool deletePeer(const QString &peerId);
+
     Q_INVOKABLE void sendMessage(const QString &peerId,
                                  const QString &username,
                                  const QString &ip,
@@ -51,7 +53,7 @@ signals:
     void messagesChanged();
     void lastErrorChanged();
     void readyChanged();
-
+    void peerDeleted(const QString &peerId);    //删除成功后通知QML。
     void operationFailed(const QString &message);
 
 private:
