@@ -14,14 +14,14 @@ qt_add_executable(appMessager  WIN32)
 qt_add_qml_module(appMessager
     URI "se.qt.messager"
     VERSION 1.0
-    SOURCES main.cpp appcontroller.h appcontroller.cpp
-
+    SOURCES     main.cpp
+    QML_FILES
     QML_FILES PeerPanel.qml
     QML_FILES ChatPanel.qml
     QML_FILES Window.qml
     QML_FILES InputPanel.qml
     QML_FILES InviteUserInterface.qml
-
+    SOURCES appcontroller.h appcontroller.cpp
 )
 target_compile_features(appMessager PRIVATE cxx_std_23)
 target_link_libraries(appMessager

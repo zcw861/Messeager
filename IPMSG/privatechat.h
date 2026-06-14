@@ -8,13 +8,10 @@
 //         * 将0.1.0版本的posix socket函数封装为c++，提供给qml进行交互
 //     [v0.1.2] ZhouChengWei    2026-06-11 22:19:35
 //         * 添加了离线检测以及离线清理功能
-//     [v0.1.3] HeZhiyuan    2026-06-13 14:02:50
+//     [v0.1.2] HeZhiyuan    2026-06-13 14:02:50
 //         * 移除start()和sendMessageToUser()的Q_INVOKABLE。
 //           PrivateChat不再直接暴露给QML。
 //           网络调用统一由AppController转发。
-//     [v0.1.4] ZhouChengWei    2026-06-14 14:48:27
-//         * 添加了用于关闭阻塞调用的文件描述符
-
 #ifndef PRIVATECHAT_H
 #define PRIVATECHAT_H
 
@@ -71,9 +68,6 @@ private:
     std::thread m_listenThread;
     std::thread m_serverThread;
     std::thread m_cleanThread;
-
-    int m_tcp_serverFd = -1;
-    int m_udp_listenFd = -1;
 };
 
 #endif // PRIVATECHAT_H
