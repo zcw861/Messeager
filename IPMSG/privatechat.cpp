@@ -22,15 +22,23 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-#define UDP_PORT 45454  // UDP端口
-#define TCP_PORT 45455  // TCP端口
-#define BUF_SIZE 1024   // 缓冲区大小
+#define UDP_PORT 45454  //UDP端口
+#define TCP_PORT 45455  //TCP端口
+#define BUF_SIZE 1024   //缓冲区大小
 
 PrivateChat::PrivateChat(QObject *parent) : QObject(parent){}
 
 PrivateChat::~PrivateChat()
 {
     m_running = false;
+
+    //关闭socket让阻塞调用返回
+    if(m_udp_listenFd != -1){
+        shutdown(m_udp_listenFd, SHUT_RDWR);
+    }
+    if(m_tcp_serverFd != -1){
+        shutdown(m_tcp_serverFd, SHUT_RDWR);
+    }
 
     //等待所有线程结束
     if(m_broadcastThread.joinable()){
@@ -139,7 +147,7 @@ void PrivateChat::broadcastThread()
     while(m_running){
         sendto(listenfd, m_localName.c_str(), m_localName.size(), 0,
                (struct sockaddr*)&address, sizeof(address));
-        sleep(2);  // 每2秒广播一次
+        sleep(2);  //每2秒广播一次
     }
 
     close(listenfd);
@@ -211,7 +219,7 @@ void PrivateChat::tcpServerThread()
         return;
     }
 
-    //清理之前的旧连接
+    //清理之前的旧连接,设置地址重用
     int reuse1 = 1;
     setsockopt(serverfd, SOL_SOCKET, SO_REUSEADDR, &reuse1, sizeof(reuse1));
     setsockopt(serverfd, SOL_SOCKET, SO_REUSEPORT, &reuse1, sizeof(reuse1));

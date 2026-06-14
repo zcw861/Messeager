@@ -9,8 +9,7 @@
 //     [v0.1.2] ZhouChengWei    2026-06-11 22:19:35
 //         * 添加了离线检测以及离线清理功能
 
-#ifndef PRIVATECHAT_H
-#define PRIVATECHAT_H
+#pragma once
 
 #include <QObject>
 #include <QVariantList>
@@ -65,6 +64,8 @@ private:
     std::thread m_listenThread;
     std::thread m_serverThread;
     std::thread m_cleanThread;
-};
 
-#endif // PRIVATECHAT_H
+    //用于关闭文件描述符
+    int m_udp_listenFd = -1;
+    int m_tcp_serverFd = -1;
+};

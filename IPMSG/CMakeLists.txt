@@ -21,6 +21,7 @@ target_sources(IPMSG
         privatechat.cpp
         privatechat.h
         main.qml
+        translatefile.h translatefile.cpp
 )
 
 # source_group("IPMSG", FILES  # 模块文件的分组
