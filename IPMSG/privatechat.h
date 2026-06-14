@@ -14,6 +14,10 @@
 //           网络调用统一由AppController转发。
 //     [v0.1.4]  ZhouChengWei    2026-06-14 15:37:05
 //         * 添加了用于关闭阻塞调用的文件描述符
+//     [v0.1.5] ZhouChengWei    2026-06-14 17:29:06
+//         * 添加了用于标识本地ip的变量
+//     [v0.1.6] ZhouChengWei    2026-06-14 21:32:12
+//         * 添加了获取本机IP的函数
 
 #ifndef PRIVATECHAT_H
 #define PRIVATECHAT_H
@@ -49,6 +53,8 @@ public:
     void start(const QString &userName);    //启动程序
     void sendMessageToUser(const QString &ip, const QString &msg);  //发送消息
 
+    QString localIp() const;    //提供本机IP
+
 signals:
     void onlineUsersChanged();  //通知在线用户变化
     void messageReceived(const QString &fromName, const QString &fromIp, const QString &message);   //通知收到消息
@@ -65,6 +71,7 @@ private:
     std::unordered_map<std::string, UserInfo> m_peers;  //ip与用户的映射
     mutable std::mutex m_mutex; //锁，用于并发时保护m_peers的资源访问
     std::string m_localName;    //当前用户名字
+    std::string m_localIp;      //当前用户IP
     std::atomic<bool> m_running{false}; //当前程序是否已经启动
 
     std::thread m_broadcastThread;

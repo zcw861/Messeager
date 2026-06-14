@@ -14,6 +14,13 @@ add_library(IPMSG STATIC
     translatefile.cpp
 )
 
+qt_add_qml_module(IPMSG
+    URI "se.qt.ipmsg"
+    VERSION 1.0
+    SOURCES  privatechat.h privatechat.cpp
+
+)
+
 target_compile_features(IPMSG PRIVATE cxx_std_23)
 
 target_include_directories(IPMSG

@@ -21,6 +21,7 @@
 //
 //     [v0.1.5] HeZhiyuan    2026-06-14 16:14:29
 //         * 删除成功后，清理QML的当前用户状态
+
 import QtQuick
 import QtQuick.Controls
 import se.qt.messager
@@ -43,7 +44,7 @@ ApplicationWindow {
    AppController {
        id: appController
        Component.onCompleted: {
-           appController.initialize("JF")
+           appController.initialize("zcw")
        }
        //删除成功后，再清理QML的当前用户状态。
        onPeerDeleted: function(peerId) {
