@@ -7,8 +7,11 @@
 //         * 修改了输入框颜色，添加了鼠标在发送按钮悬停样式。
 //     [v0.1.2] HeZhiyuan    2026-06-07 13:57:38
 //         * 修改部分ui颜色
+//     [v0.1.3] JiangFan    2026-06-14
+//         *  增加文件发送按钮、文件选择对话框
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 
 Item {
     id: root
@@ -18,6 +21,8 @@ Item {
 
     //输入框向外通知：请求发送一条消息
     signal sendRequested(string content)
+    //输出框向外通知: 请求发送一个文件
+    signal fileSendRequested(url fileUrl)
 
     //统一处理发送逻辑：检查当前会话和输入内容
     function trySendMessage() {
@@ -43,6 +48,25 @@ Item {
         inputArea.text = ""
     }
 
+    //文件选择对话框
+    FileDialog {
+        id: fileDialog
+
+        title: qsTr("请选择要发送的文件")
+        fileMode:  FileDialog.OpenFile
+        nameFilters: [qsTr("所有文件")]
+
+        onAccepted:  {
+            if (selectedFile.toString().length === 0)
+                return
+
+            console.log("inputPanel 已选择文件:", selectedFile)
+
+            //把文件发送请求交给Window.qml
+            root.fileSendRequested(selectedFile)
+        }
+    }
+
     //底部输入栏
     Rectangle {
         id: inputBar
@@ -63,7 +87,48 @@ Item {
             anchors.top: parent.top
         }
 
+        //文件按钮
+        Rectangle {
+            id: fileButton
 
+            width: 50
+            height: 30
+            radius: 10
+
+            enabled: root.currentPeerId !== ""
+            opacity: enabled ? 1 : 0.5
+
+            color: fileButtonHover.hovered && fileButton.enabled ? "#F2F3F5" : "#FFFFFF"
+            border.color: "#DCDCDC"
+            border.width: 1
+
+            anchors.left: parent.left
+            anchors.leftMargin: 10
+            anchors.top: parent.top
+            anchors.topMargin: 10
+
+            Text {
+                text: qsTr("文件")
+                font.pixelSize: 10
+                color: "#333333"
+                anchors.centerIn: parent
+            }
+
+            HoverHandler {
+                id: fileButtonHover
+                cursorShape: fileButton.enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
+            }
+
+            TapHandler {
+                enabled: fileButton.enabled
+                acceptedButtons: Qt.LeftButton
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                onTapped: {
+                    fileDialog.open()
+                }
+            }
+        }
 
         TextArea {
             id: inputArea
@@ -77,7 +142,7 @@ Item {
             anchors.right: parent.right  //让他包含发送按钮
             anchors.rightMargin: 10
             anchors.top: parent.top
-            anchors.topMargin: 10
+            anchors.topMargin: 40
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 10
 

@@ -5,9 +5,16 @@
 //          发送消息后保存本地聊天记录。
 //          接收消息后保存对方聊天记录。
 //          从数据库刷新用户列表和历史消息。
+//
+//     [v0.1.2] JiangFan    2026-06-14
+//          *增加文件发送功能(待完善)
+
 #include "appcontroller.h"
 
 #include <QVariantMap>
+#include <QDebug>
+#include <QFileInfo>
+
 
 AppController::AppController(QObject *parent)
     : QObject(parent)
@@ -171,6 +178,64 @@ void AppController::sendMessage(const QString &peerId,
 
     if (!m_database.saveMessage(normalizedPeerId, true, normalizedContent)) {
         reportError(QStringLiteral("保存发送消息失败：") + m_database.lastError());
+        return;
+    }
+
+    if (m_currentPeerId == normalizedPeerId) {
+        refreshMessages();
+    }
+}
+
+void AppController::sendFile(const QString &peerId,
+                             const QString &username,
+                             const QString &ip,
+                             const QUrl &fileUrl)
+{
+
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化"));
+        return;
+    }
+
+    const QString normalizedPeerId = peerId.trimmed();
+    const QString normalizedName = username.trimmed();
+    const QString normalizedIp = ip.trimmed();
+
+    if (normalizedPeerId.isEmpty() || normalizedName.isEmpty() || normalizedIp.isEmpty()) {
+        reportError(QStringLiteral("文件发送失败：聊天对象信息不完整"));
+        return;
+    }
+
+    if (!fileUrl.isLocalFile()) {
+        reportError(QStringLiteral("文件发送失败：当前只支持本地文件"));
+        return;
+    }
+
+    const QString localFilePath = fileUrl.toLocalFile();
+    const QFileInfo fileInfo(localFilePath);
+
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        reportError(QStringLiteral("文件发送失败：文件不存在或不是普通文件"));
+        return;
+    }
+
+    if (!fileInfo.isReadable()) {
+        reportError(QStringLiteral("文件发送失败：文件不可读"));
+        return;
+    }
+
+    qInfo() << "AppController 收到文件发送请求："
+            << "peerId =" << normalizedPeerId
+            << "username =" << normalizedName
+            << "ip =" << normalizedIp
+            << "file =" << localFilePath
+            << "size =" << fileInfo.size();
+
+    const QString displayMessage =
+        QStringLiteral("[文件] %1").arg(fileInfo.fileName());
+
+    if (!m_database.saveMessage(normalizedPeerId, true, displayMessage)) {
+        reportError(QStringLiteral("保存文件发送记录失败：") + m_database.lastError());
         return;
     }
 

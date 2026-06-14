@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 4.3.2)
 
 project(IPMSG VERSION 0.1 LANGUAGES CXX)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets CanvasPainter)
+find_package(Qt6 REQUIRED COMPONENTS Core)
 find_package(Threads REQUIRED)
 
 qt_standard_project_setup()
@@ -28,6 +28,6 @@ target_link_libraries(IPMSG
     PUBLIC
         Qt6::Core
     PRIVATE
-        Qt6::Widgets        
+        # Qt6::Widgets
         Threads::Threads
 )
