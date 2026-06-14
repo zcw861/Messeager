@@ -15,6 +15,7 @@
 
 #include "databasemanager.h"
 #include "privatechat.h"
+#include "translatefile.h"
 
 class AppController : public QObject
 {
@@ -36,6 +37,8 @@ class AppController : public QObject
 public:
     explicit AppController(QObject *parent = nullptr);
 
+    ~AppController() override;
+
     QVariantList peers() const; //获取当前用户列表
     QVariantList messages() const;  //获取当前选中用户的聊天记录
     QString lastError() const;  //获取最近一次错误信息
@@ -54,11 +57,17 @@ public:
                                  const QString &username,
                                  const QString &ip,
                                  const QString &content);
-    //发送文件
+    //向指定用户发送文件
     Q_INVOKABLE void sendFile(const QString &peerId,
                               const QString &username,
                               const QString &ip,
                               const QUrl &fileUrl);
+
+    //接受文件请求
+    Q_INVOKABLE void acceptFile(const QString &ip, const QUrl &saveUrl);
+
+    //拒绝文件请求
+    Q_INVOKABLE void rejectFile(const QString &ip);
 
 signals:
     void peersChanged();    //用户列表发生变化时发出，通知QML重新读取peers属性
@@ -68,7 +77,11 @@ signals:
     void peerDeleted(const QString &peerId);    //删除成功后通知QML。
     void operationFailed(const QString &message);   //业务操作失败时发出
 
-private:
+    void fileRequestReceived(const QString &fromfp, const QString &fileName, qint64 fileSize); //收到对方文件发送请求
+    void fileTransferProgress(const QString &ip, const QString &fileName, int percent); //传输进度条
+    void fileTransferFinished(const QString &ip, const QString &fileName, bool isSuccess); //文件传输结果
+
+private:    
     void synchronizeOnlineUsers();  //从PrivateChat读取在线用户，并同步到数据库
 
     //处理网络层接收到的聊天消息
@@ -83,6 +96,8 @@ private:
 private:
     DatabaseManager m_database; //本地SQLite数据库管理对象
     PrivateChat m_privateChat;  //局域网用户发现和消息收发对象
+
+    TranslateFile m_translateFile; //文件传输后端对象
 
     QVariantList m_peers;   //提供给QML的用户列表缓存
     QVariantList m_messages;    //当前聊天对象的消息列表缓存

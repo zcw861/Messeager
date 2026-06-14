@@ -30,6 +30,33 @@ AppController::AppController(QObject *parent)
         &PrivateChat::messageReceived,
         this,
         &AppController::handleMessageReceived);
+
+    //收到文件请求
+    connect(
+        &m_translateFile,
+        &TranslateFile::fileRequestReceived,
+        this,
+        &AppController::fileRequestReceived);
+
+    //文件传输进度条
+    connect(
+        &m_translateFile,
+        &TranslateFile::fileTransferProgress,
+        this,
+        &AppController::fileTransferProgress);
+
+    //文件传输完成
+    connect(
+        &m_translateFile,
+        &TranslateFile::fileTransferFinished,
+        this,
+        &AppController::fileTransferFinished);
+
+}
+
+AppController::~AppController()
+{
+    m_translateFile.stop();
 }
 
 QVariantList AppController::peers() const
@@ -81,7 +108,11 @@ bool AppController::initialize(const QString &userName)
 
     refreshPeers();
 
+    //启动局域网消息服务
     m_privateChat.start(normalizedName);
+
+    //启动文件传输线程
+    m_translateFile.start();
 
     m_ready = true;
     emit readyChanged();
@@ -191,7 +222,6 @@ void AppController::sendFile(const QString &peerId,
                              const QString &ip,
                              const QUrl &fileUrl)
 {
-
     if (!m_ready) {
         reportError(QStringLiteral("程序尚未初始化"));
         return;
@@ -224,15 +254,15 @@ void AppController::sendFile(const QString &peerId,
         return;
     }
 
-    qInfo() << "AppController 收到文件发送请求："
-            << "peerId =" << normalizedPeerId
-            << "username =" << normalizedName
-            << "ip =" << normalizedIp
-            << "file =" << localFilePath
-            << "size =" << fileInfo.size();
+    // 确保数据库里存在这个聊天对象。
+    if (!m_database.upsertPeer(normalizedPeerId, normalizedName, normalizedIp, true)) {
+        reportError(QStringLiteral("更新文件接收方信息失败：") + m_database.lastError());
+        return;
+    }
 
+    // 记录一条本地文件发送消息，方便聊天窗口立即显示。
     const QString displayMessage =
-        QStringLiteral("[文件] %1").arg(fileInfo.fileName());
+        QStringLiteral("[发送文件] %1").arg(fileInfo.fileName());
 
     if (!m_database.saveMessage(normalizedPeerId, true, displayMessage)) {
         reportError(QStringLiteral("保存文件发送记录失败：") + m_database.lastError());
@@ -242,6 +272,73 @@ void AppController::sendFile(const QString &peerId,
     if (m_currentPeerId == normalizedPeerId) {
         refreshMessages();
     }
+
+    m_translateFile.sendFile(normalizedIp, localFilePath);
+
+    qInfo() << "开始发送文件:"
+            << "peerId =" << normalizedPeerId
+            << "username =" << normalizedName
+            << "ip =" << normalizedIp
+            << "file =" << localFilePath
+            << "size =" << fileInfo.size();
+}
+
+//接受该IP发送的文件
+void AppController::acceptFile(const QString &ip,
+                               const QUrl &saveUrl)
+{
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化"));
+        return;
+    }
+
+    const QString normalizedIp = ip.trimmed();
+
+    if (normalizedIp.isEmpty()) {
+        reportError(QStringLiteral("接收文件失败：发送方 IP 为空"));
+        return;
+    }
+
+    if (!saveUrl.isLocalFile()) {
+        reportError(QStringLiteral("接收文件失败：保存路径不是本地路径"));
+        return;
+    }
+
+    const QString savePath = saveUrl.toLocalFile();
+
+    if (savePath.trimmed().isEmpty()) {
+        reportError(QStringLiteral("接收文件失败：保存路径为空"));
+        return;
+    }
+
+    //通知文件传输后端：接受该IP发来的待处理文件请求，并把文件保存到savePath。
+    m_translateFile.acceptFile(normalizedIp, savePath);
+
+    qInfo() << "接受文件请求:"
+            << "fromIp =" << normalizedIp
+            << "savePath =" << savePath;
+}
+
+//拒绝该IP发送的文件
+void AppController::rejectFile(const QString &ip)
+{
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化"));
+        return;
+    }
+
+    const QString normalizedIp = ip.trimmed();
+
+    if (normalizedIp.isEmpty()) {
+        reportError(QStringLiteral("拒绝文件失败：发送方 IP 为空"));
+        return;
+    }
+
+    //通知文件传输后端：拒绝该IP发来的待处理文件请求。
+    m_translateFile.rejectFile(normalizedIp);
+
+    qInfo() << "拒绝文件请求:"
+            << "fromIp =" << normalizedIp;
 }
 
 void AppController::synchronizeOnlineUsers()
