@@ -11,6 +11,8 @@
 //         * 添加了离线检测以及清理离线功能
 //     [v0.1.4]  ZhouChengWei   2026-06-12 11:44:33
 //         * 添加了清理旧的socket连接，防止下次运行时导致的tcp bind fail而收不到消息
+//     [v0.1.5] ZhouChengWei    2026-06-14 14:46:58
+//         * 添加了关闭各种阻塞调用，防止每次重启发消息会导致第一次发送消息接收不到的bug
 
 #include "privatechat.h"
 
@@ -22,9 +24,9 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-#define UDP_PORT 45454  //UDP端口
-#define TCP_PORT 45455  //TCP端口
-#define BUF_SIZE 1024   //缓冲区大小
+#define UDP_PORT 45454  // UDP端口
+#define TCP_PORT 45455  // TCP端口
+#define BUF_SIZE 1024   // 缓冲区大小
 
 PrivateChat::PrivateChat(QObject *parent) : QObject(parent){}
 
@@ -33,10 +35,10 @@ PrivateChat::~PrivateChat()
     m_running = false;
 
     //关闭socket让阻塞调用返回
-    if(m_udp_listenFd != -1){
-        shutdown(m_udp_listenFd, SHUT_RDWR);
-    }
     if(m_tcp_serverFd != -1){
+        shutdown(m_tcp_serverFd, SHUT_RDWR);
+    }
+    if(m_udp_listenFd != -1){
         shutdown(m_tcp_serverFd, SHUT_RDWR);
     }
 
@@ -52,6 +54,15 @@ PrivateChat::~PrivateChat()
     }
     if (m_cleanThread.joinable()) {
         m_cleanThread.join();
+    }
+
+    if (m_tcp_serverFd != -1) {
+        close(m_tcp_serverFd);
+        m_tcp_serverFd = -1;
+    }
+    if (m_udp_listenFd != -1) {
+        close(m_udp_listenFd );
+        m_udp_listenFd  = -1;
     }
 }
 
@@ -91,7 +102,7 @@ void PrivateChat::sendMessageToUser(const QString &ip, const QString &msg)
     std::string msgStr = msg.toStdString();
 
     std::thread([ipStr, msgStr](){
-        int sendfd = ::socket(PF_INET, SOCK_STREAM, 0);
+        int sendfd = socket(PF_INET, SOCK_STREAM, 0);
         if(sendfd < 0) {
             perror("tcp send socket create fail");
             return;
@@ -157,6 +168,7 @@ void PrivateChat::broadcastThread()
 void PrivateChat::listenThread()
 {
     int listenfd = socket(PF_INET, SOCK_DGRAM, 0);
+    m_udp_listenFd = listenfd;
     if(listenfd < 0) {
         perror("udp listen socket create fail");
         return;
@@ -214,12 +226,13 @@ void PrivateChat::listenThread()
 void PrivateChat::tcpServerThread()
 { 
     int serverfd = socket(PF_INET, SOCK_STREAM, 0);
+    m_tcp_serverFd = serverfd;
     if(serverfd < 0){
         perror("tcp server socket create fail");
         return;
     }
 
-    //清理之前的旧连接,设置地址重用
+    //清理之前的旧连接
     int reuse1 = 1;
     setsockopt(serverfd, SOL_SOCKET, SO_REUSEADDR, &reuse1, sizeof(reuse1));
     setsockopt(serverfd, SOL_SOCKET, SO_REUSEPORT, &reuse1, sizeof(reuse1));
