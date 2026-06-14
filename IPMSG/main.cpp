@@ -20,13 +20,12 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
 
     PrivateChat privateChat;
-    TranslateFile translateFile;
 
     QQmlApplicationEngine engine;
 
     // 先设置 context property，再加载 QML
     engine.rootContext()->setContextProperty("privateChat", &privateChat);
-    engine.rootContext()->setContextProperty("translateFile", &translateFile);
+    //engine.rootContext()->setContextProperty("translateFile", &translateFile);
 
     const QUrl url = QUrl::fromLocalFile("../../main.qml");
     QObject::connect(
@@ -42,7 +41,7 @@ int main(int argc, char *argv[])
     engine.load(url);
 
     // 文件传输服务在 QML 加载完毕后启动
-    translateFile.start();
+    //translateFile.start();
 
     return app.exec();
 }
