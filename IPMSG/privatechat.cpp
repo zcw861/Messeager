@@ -23,6 +23,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <netdb.h>
 
 #define UDP_PORT 45454  // UDP端口
 #define TCP_PORT 45455  // TCP端口
@@ -76,6 +77,15 @@ void PrivateChat::start(const QString &userName)
     if(m_running) return;  //防止重复启动
 
     m_localName = userName.toStdString();
+    //获取本机局域网IP
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+    struct hostent *host = gethostbyname(hostname);
+    if (host && host->h_addr_list[0]) {
+        m_localIp = inet_ntoa(*(struct in_addr*)host->h_addr_list[0]);
+    } else {
+        m_localIp = "127.0.0.1";
+    }
     m_running = true;
 
     //启动四个工作线程
@@ -85,12 +95,26 @@ void PrivateChat::start(const QString &userName)
     m_cleanThread = std::thread(&PrivateChat::cleanOfflineThread, this);
 
     std::cout << "信使聊天服务已启动，用户: " << m_localName << std::endl;
+    emit localIpChanged();
 }
 
 void PrivateChat::sendMessageToUser(const QString &ip, const QString &msg)
 {
     std::string ipStr = ip.toStdString();
     std::string msgStr = msg.toStdString();
+
+    //如果发给自己
+    if (ipStr == m_localIp || ipStr == "127.0.0.1" || ipStr == "::1") {
+        //本地接收事件，不经过网络
+        QMetaObject::invokeMethod(this, [this, msgStr]() {
+            emit messageReceived(
+                QString::fromStdString(m_localName),
+                QString::fromStdString(m_localIp),
+                QString::fromStdString(msgStr)
+                );
+        }, Qt::QueuedConnection);
+        return;
+    }
 
     std::thread([ipStr, msgStr](){
         int sendfd = ::socket(PF_INET, SOCK_STREAM, 0);

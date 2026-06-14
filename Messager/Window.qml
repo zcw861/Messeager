@@ -39,7 +39,7 @@ ApplicationWindow {
    AppController {
        id: appController
        Component.onCompleted: {
-           appController.initialize("lll")
+           appController.initialize("zcw")
        }
        //删除成功后，再清理QML的当前用户状态。
        onPeerDeleted: function(peerId) {
