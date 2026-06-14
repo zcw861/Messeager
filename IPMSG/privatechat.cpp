@@ -39,7 +39,7 @@ PrivateChat::~PrivateChat()
         shutdown(m_tcp_serverFd, SHUT_RDWR);
     }
     if(m_udp_listenFd != -1){
-        shutdown(m_tcp_serverFd, SHUT_RDWR);
+        shutdown(m_udp_listenFd, SHUT_RDWR);
     }
 
     //等待所有线程结束
