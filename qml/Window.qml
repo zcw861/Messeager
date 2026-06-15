@@ -50,7 +50,7 @@ ApplicationWindow {
    //当前待处理的文件接收请求
    property string pendingFileIp: ""
    property string pendingFileName: ""
-   property var pendingFileSize: 0
+   property int pendingFileSize: 0
 
    //文件传输状态显示
    property int fileTransferPercent: 0

@@ -99,8 +99,8 @@ Item {
             opacity: enabled ? 1 : 0.5
 
             color: fileButtonHover.hovered && fileButton.enabled ? "#F2F3F5" : "#FFFFFF"
-            border.color: "#DCDCDC"
-            border.width: 1
+            //border.color: "#DCDCDC"
+            //border.width: 1
 
             anchors.left: parent.left
             anchors.leftMargin: 10
@@ -108,8 +108,8 @@ Item {
             anchors.topMargin: 10
 
             Text {
-                text: qsTr("文件")
-                font.pixelSize: 10
+                text: qsTr("📄文件")
+                font.pixelSize: 15
                 color: "#333333"
                 anchors.centerIn: parent
             }
@@ -149,8 +149,8 @@ Item {
             background: Rectangle {
                 radius: 8
                 color: "white"
-                border.color: "black"
-                border.width: 1
+                //border.color: "black"
+                //border.width: 1
             }
 
             //一个处理回车事件的函数
