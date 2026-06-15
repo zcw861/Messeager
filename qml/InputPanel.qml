@@ -9,6 +9,9 @@
 //         * 修改部分ui颜色
 //     [v0.1.3] JiangFan    2026-06-14
 //         *  增加文件发送按钮、文件选择对话框
+//     [v0.1.4] JiangFan    2026-06-15
+//         *  更改消息发送框（文件、发送按钮、文本框）的形式，增加ScrollView,支持输入框滑动
+//
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -130,12 +133,8 @@ Item {
             }
         }
 
-        TextArea {
-            id: inputArea
-
-            placeholderText: qsTr("请输入消息......")
-            font.pixelSize: 14
-            wrapMode: TextEdit.Wrap
+        ScrollView {
+            id: inputScrollView
 
             anchors.left: parent.left
             anchors.leftMargin: 15
@@ -144,36 +143,49 @@ Item {
             anchors.top: parent.top
             anchors.topMargin: 40
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 10
+            anchors.bottomMargin: 40  //保持在发送按钮上方，防止文字被覆盖
 
-            background: Rectangle {
-                radius: 8
-                color: "white"
-                //border.color: "black"
-                //border.width: 1
-            }
+            clip: true
 
-            //一个处理回车事件的函数
-            // enter or send(press send Button) --> 发送
-            // ctrl + enter--> 换行
-            Keys.onPressed: function(event) {
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-                //没有按按钮且没有回车
-                if (!(event.key === Qt.Key_Return || event.key === Qt.Key_Enter))
-                    return
+            TextArea {
+                id: inputArea
 
-                //ctrl + enter : 换行
-                if ((event.modifiers & Qt.ControlModifier) !== 0)
-                {
-                    inputArea.insert(inputArea.cursorPosition, "\n")
-                    event.accepted = true
-                    return
+                placeholderText: qsTr("请输入消息......")
+                font.pixelSize: 14
+                wrapMode: TextEdit.Wrap
+
+                background: Rectangle {
+                    radius: 8
+                    color: "white"
+                    //border.color: "black"
+                    //border.width: 1
                 }
 
-                //enter or send
-                root.trySendMessage()
-                event.accepted = true
+                //一个处理回车事件的函数
+                // enter or send(press send Button) --> 发送
+                // ctrl + enter--> 换行
+                Keys.onPressed: function(event) {
 
+                    //没有按按钮且没有回车
+                    if (!(event.key === Qt.Key_Return || event.key === Qt.Key_Enter))
+                        return
+
+                    //ctrl + enter : 换行
+                    if ((event.modifiers & Qt.ControlModifier) !== 0)
+                    {
+                        inputArea.insert(inputArea.cursorPosition, "\n")
+                        event.accepted = true
+                        return
+                    }
+
+                    //enter or send
+                    root.trySendMessage()
+                    event.accepted = true
+
+                }
             }
         }
 
@@ -193,7 +205,7 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: 15
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 15
+            anchors.bottomMargin: 10
 
             Text {
                 text: qsTr("发送")
