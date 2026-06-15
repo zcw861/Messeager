@@ -200,7 +200,11 @@ Item {
             //当前是否允许发送
             property bool canSend: root.currentPeerId !== "" && inputArea.text.trim().length > 0
 
-            color: canSend ? "#12B7F5" : "#C9CDD4"
+            color: !canSend
+                    ? "#C9CDD4"     //不能发送：灰色
+                    : sendTap.pressed ? "#9AA4AF" //按下瞬间：变灰
+                                      : sendButtonHover.hovered ? "#0E9FE6" //鼠标悬停：深蓝
+                                                                : "#12B7F5" //默认可发送：浅蓝
 
             anchors.right: parent.right
             anchors.rightMargin: 15
@@ -216,6 +220,8 @@ Item {
             }
 
             TapHandler {
+                id: sendTap
+
                 enabled: sendButton.canSend
                 gesturePolicy: TapHandler.ReleaseWithinBounds
 
@@ -225,8 +231,10 @@ Item {
             }
 
             HoverHandler{
-                id :eableSend
-                cursorShape: Qt.ArrowCursor
+                id :sendButtonHover
+
+                //改变悬停鼠标样式
+                cursorShape: sendButton.canSend ? Qt.PointingHandCursor : Qt.ForbiddenCursor
             }
         }
     }
