@@ -29,7 +29,7 @@ import QtQuick.Controls
 Rectangle{
     id: root
 
-    //MessageWindow.qml传入
+    //Window.qml传入
     property string currentPeerId: ""
     property string currentPeerName: "请选择用户"
     property var messageModel: null //MessageWindow.qml 传入的消息模型
