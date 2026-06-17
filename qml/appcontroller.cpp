@@ -21,38 +21,45 @@
 AppController::AppController(QObject *parent)
     : QObject(parent)
 {
+    //在线用户列表发生变化,AppController执行数据库同步
     connect(
         &m_privateChat,
         &PrivateChat::onlineUsersChanged,
         this,
-        &AppController::synchronizeOnlineUsers);
+        &AppController::synchronizeOnlineUsers
+    );
 
+    //收到聊天消息
     connect(
         &m_privateChat,
         &PrivateChat::messageReceived,
         this,
-        &AppController::handleMessageReceived);
+        &AppController::handleMessageReceived
+    );
 
     //收到文件请求
     connect(
         &m_translateFile,
         &TranslateFile::fileRequestReceived,
         this,
-        &AppController::fileRequestReceived);
+        &AppController::fileRequestReceived
+    );
 
     //文件传输进度条
     connect(
         &m_translateFile,
         &TranslateFile::fileTransferProgress,
         this,
-        &AppController::fileTransferProgress);
+        &AppController::fileTransferProgress
+    );
 
     //文件传输完成
     connect(
         &m_translateFile,
         &TranslateFile::fileTransferFinished,
         this,
-        &AppController::fileTransferFinished);
+        &AppController::fileTransferFinished
+    );
 
 }
 
@@ -81,12 +88,15 @@ bool AppController::ready() const
     return m_ready;
 }
 
+//初始化应用后端。顺序为：校验用户名、打开数据库、初始化表结构、读取历史用户、启动网络服务、更新 ready 状态
 bool AppController::initialize(const QString &userName)
 {
+    //防止重复启动网络线程和重复初始化数据库
     if (m_ready) {
         return true;
     }
 
+    //用户名去除首尾空格后再进行校验和传递
     const QString normalizedName = userName.trimmed();
 
     if (normalizedName.isEmpty()) {
@@ -101,6 +111,7 @@ bool AppController::initialize(const QString &userName)
         return false;
     }
 
+    //数据库连接成功后创建必要的数据表和索引
     if (!m_database.initSchema()) {
         reportError(
             QStringLiteral("数据库初始化失败：")
@@ -108,6 +119,7 @@ bool AppController::initialize(const QString &userName)
         return false;
     }
 
+    //网络服务启动前先读取本地历史用户，使界面可以立即显示离线用户
     refreshPeers();
 
     //启动局域网消息服务
@@ -116,35 +128,42 @@ bool AppController::initialize(const QString &userName)
     //启动文件传输线程
     m_translateFile.start();
 
+    //所有必要步骤完成后再将控制器标记为可用
     m_ready = true;
     emit readyChanged();
 
     return true;
 }
 
+//更新当前聊天用户，并从数据库加载其历史消息
 void AppController::selectPeer(const QString &peerId)
 {
     m_currentPeerId = peerId.trimmed();
     refreshMessages();
 }
 
+//退出当前会话，用户列表仍然保留，只清空当前聊天对象和消息缓存
 void AppController::clearConversation()
 {
     m_currentPeerId.clear();
 
+    //只有消息缓存确实发生变化时才发出信号，避免无效刷新
     if (!m_messages.isEmpty()) {
         m_messages.clear();
         emit messagesChanged();
     }
 }
 
+//删除本地用户及其聊天记录，并同步清理控制器和QML状态
 bool AppController::deletePeer(const QString &peerId)
 {
+    //未初始化时数据库不可用，禁止执行删除操作
     if (!m_ready) {
         reportError(QStringLiteral("程序尚未初始化"));
         return false;
     }
 
+    //使用去除首尾空白后的 peerId 进行统一处理
     const QString normalizedPeerId = peerId.trimmed();
 
     if (normalizedPeerId.isEmpty()) {
@@ -152,28 +171,27 @@ bool AppController::deletePeer(const QString &peerId)
         return false;
     }
 
-    //删除数据库记录。
+    //调用数据库层删除用户,对应聊天记录由数据库外键级联删除
     if (!m_database.deletePeer(normalizedPeerId)) {
-        reportError(
-            QStringLiteral("删除用户失败：")
-            + m_database.lastError());
+        reportError(QStringLiteral("删除用户失败：") + m_database.lastError());
         return false;
     }
 
-    //如果删除的是当前聊天对象，同时清空控制器中的会话状态。
+    //如果删除的是当前聊天对象，同时关闭当前会话
     if (m_currentPeerId == normalizedPeerId) {
         clearConversation();
     }
 
-    //重新从数据库读取用户列表。
+    //删除完成后重新读取用户列表，更新QML中的左侧列表
     refreshPeers();
 
-    //通知 QML 清理当前选中状态。
+    //单独通知QML删除成功，使Window.qml清理当前用户名称和IP
     emit peerDeleted(normalizedPeerId);
 
     return true;
 }
 
+//校验聊天对象和消息内容，通过网络层发送消息，并将本机发送记录保存到数据库
 void AppController::sendMessage(const QString &peerId,
                                 const QString &username,
                                 const QString &ip,
@@ -184,6 +202,7 @@ void AppController::sendMessage(const QString &peerId,
         return;
     }
 
+    //对QML传入的字符串统一去除首尾空白
     const QString normalizedPeerId = peerId.trimmed();
     const QString normalizedName = username.trimmed();
     const QString normalizedIp = ip.trimmed();
@@ -199,7 +218,7 @@ void AppController::sendMessage(const QString &peerId,
         return;
     }
 
-    //确保外键对应的 peer 已经存在。
+    //messages.peer_id是外键,保存消息前先确保该用户已经存在于peers表中
     if (!m_database.upsertPeer(normalizedPeerId, normalizedName, normalizedIp, true)) {
         reportError(QStringLiteral("更新用户信息失败：") + m_database.lastError());
         return;
@@ -217,15 +236,16 @@ void AppController::sendMessage(const QString &peerId,
         return;
     }
 
-    //当前网络接口是异步发送，调用返回表示消息已交给发送线程，
-    //暂时不代表对方一定已经收到。
+    //当前网络接口是异步发送，调用返回表示消息已交给发送线程，暂时不代表对方一定已经收到。
     m_privateChat.sendMessageToUser(normalizedIp, normalizedContent);
 
+    //网络发送请求提交后保存本地历史记录
     if (!m_database.saveMessage(normalizedPeerId, true, normalizedContent)) {
         reportError(QStringLiteral("保存发送消息失败：") + m_database.lastError());
         return;
     }
 
+    //只有消息属于当前打开的会话时才重新读取聊天记录
     if (m_currentPeerId == normalizedPeerId) {
         refreshMessages();
     }
@@ -355,19 +375,24 @@ void AppController::rejectFile(const QString &ip)
             << "fromIp =" << normalizedIp;
 }
 
+//将PrivateChat的网络用户数据转换成数据库层需要的数据结构，然后调用DatabaseManager完成事务同步
 void AppController::synchronizeOnlineUsers()
 {
+    //使用数据库层约定的字段名保存用户数据
     QVariantList normalizedPeers;
 
+    //onlineUsers的原始字段由网络层提供，主要包含name和ip
     const QVariantList onlineUsers = m_privateChat.onlineUsers();
 
     for (const QVariant &item : onlineUsers) {
+        //将每一个网络用户转换为QVariantMap
         const QVariantMap networkUser = item.toMap();
 
         const QString name = networkUser.value(QStringLiteral("name")).toString().trimmed();
 
         const QString ip = networkUser.value(QStringLiteral("ip")).toString().trimmed();
 
+        //name或ip缺失的网络记录不能写入数据库
         if (name.isEmpty() || ip.isEmpty()) {continue;}
 
         QVariantMap peer;
@@ -381,32 +406,38 @@ void AppController::synchronizeOnlineUsers()
         normalizedPeers.append(peer);
     }
 
+    //数据库同步失败时保留旧的QML用户列表，并报告错误
     if (!m_database.synchronizePeers(normalizedPeers)) {
         reportError(QStringLiteral("同步在线用户失败：") + m_database.lastError());
         return;
     }
 
+    //同步成功后重新读取排序后的数据库用户列表
     refreshPeers();
 }
 
+//处理网络层收到的聊天消息，先保证发送者存在，再保存消息，最后刷新用户列表和当前会话
 void AppController::handleMessageReceived(const QString &fromName,
                                           const QString &fromIp,
                                           const QString &message)
 {
-    //如果是本机Ip直接返回
+    //忽略来源IP为本机的消息，避免本机消息被重复保存和显示。
     if (fromIp == m_privateChat.localIp()) {
         return;
     }
 
+    //对网络层传入的数据进行标准化
     const QString normalizedName = fromName.trimmed();
     const QString normalizedIp = fromIp.trimmed();
     const QString normalizedMessage = message.trimmed();
 
+    //ip和消息正文是保存消息所必需的数据
     if (normalizedIp.isEmpty() || normalizedMessage.isEmpty()) { return;}
 
+    //对方没有提供有效用户名时，使用ip作为界面显示名称
     const QString displayName = normalizedName.isEmpty() ? normalizedIp : normalizedName;
 
-    //当前阶段使用IP作为peerId。
+    //当前阶段使用ip作为peerId。
     if (!m_database.upsertPeer(normalizedIp, displayName, normalizedIp, true)) {
         reportError(QStringLiteral("保存消息发送者失败：") + m_database.lastError());
         return;
@@ -417,11 +448,14 @@ void AppController::handleMessageReceived(const QString &fromName,
         return;
     }
 
+    //收到新消息后，发送者可能是新用户，因此刷新用户列表
     refreshPeers();
 
+    //当消息属于当前会话时刷新聊天记录
     if (m_currentPeerId == normalizedIp) {refreshMessages();}
 }
 
+//从数据库重新加载用户列表，只有新数据与缓存不同时才更新属性并通知 QML
 void AppController::refreshPeers()
 {
     const QVariantList loadedPeers = m_database.loadPeers();
@@ -432,6 +466,7 @@ void AppController::refreshPeers()
     emit peersChanged();
 }
 
+//从数据库重新加载当前会话消息，没有选择用户时使用空列表清理聊天界面
 void AppController::refreshMessages()
 {
     QVariantList loadedMessages;
@@ -444,6 +479,7 @@ void AppController::refreshMessages()
     emit messagesChanged();
 }
 
+//统一保存错误并发出属性变化和业务失败信号
 void AppController::reportError(const QString &message)
 {
     m_lastError = message;

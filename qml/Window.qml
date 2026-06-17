@@ -56,10 +56,11 @@ ApplicationWindow {
    property int fileTransferPercent: 0
    property string fileTransferStatusText: ""
 
+   //C++应用控制器：负责数据库、用户发现和消息收发，QML只处理界面状态
    AppController {
        id: appController
        Component.onCompleted: {
-           appController.initialize("jf")
+           appController.initialize("lll")
        }
        //删除成功后，再清理QML的当前用户状态。
        onPeerDeleted: function(peerId) {
@@ -115,13 +116,16 @@ ApplicationWindow {
        }
    }
 
-   //消息显示
+   //校验当前会话和消息内容，并将发送请求交给AppController，网络发送和数据库保存均由C++控制层完成
    function trySendMessage(content) {
+       //去除消息首尾空白，防止发送空白消息
        content = content.trim()
 
+       //未选择用户或正文为空时不执行发送
        if (root.currentPeerId === "") return
        if (content.length === 0) return
 
+       //将完整聊天对象信息和消息正文交给C++控制器
        appController.sendMessage(
            root.currentPeerId,
            root.currentPeerName,
@@ -162,17 +166,20 @@ ApplicationWindow {
            anchors.left: parent.left
            anchors.top: parent.top
            anchors.bottom: parent.bottom
-           //把Main.qml当前选中的用户id传给PeerPanel，用于左侧高亮
+           //Window.qml当前选中的用户id传给PeerPanel，用于左侧高亮
            currentPeerId: root.currentPeerId
+           //用户列表数据直接来自AppController的peer属性
            peerModel: appController.peers
 
            //     [v0.1.2] HeZhiyuan    2026-06-03 16:37:40
            //         * 用户点击左侧列表项后，这里会被调用
+           //并通知AppController从数据库读取该用户的历史消息
            onPeerSelected: function(peerId, username, ip) {
                //切换到另一个用户时，先清空当前前端消息
                if (root.currentPeerId !== peerId){
                    inputPanel.clear()
                }
+               //保存当前会话所需的用户信息
                root.currentPeerId = peerId
                root.currentPeerName = username
                root.currentPeerIp = ip

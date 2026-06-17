@@ -171,22 +171,15 @@ Rectangle {
 
         model: peerPanel.peerModel
 
+        //使用QVariantList/QVariantMap的modelData读取用户数据
         delegate: Rectangle {
             id: peerItem
 
             required property var modelData
-
-            readonly property string peerId:
-                modelData.peerId
-
-            readonly property string username:
-                modelData.username
-
-            readonly property string ip:
-                modelData.ip
-
-            readonly property bool online:
-                modelData.online
+            readonly property string peerId: modelData.peerId
+            readonly property string username: modelData.username
+            readonly property string ip: modelData.ip
+            readonly property bool online: modelData.online
 
             width: peerListView.width - 20
             radius: 10
@@ -209,7 +202,6 @@ Rectangle {
             border.color: selected ? "#9BCBFF"
                                    : hoverHandler.hovered ? "#D0D0D0"
                                    : "#E0E0E0"
-
 
             border.width: 1
 

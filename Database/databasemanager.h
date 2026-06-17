@@ -42,7 +42,7 @@ public:
     //保存一条聊天消息
     bool saveMessage(const QString &peerId,bool fromMe,const QString &content);
     //读取与指定用户之间的最近聊天记录
-    QVariantList loadMessages(const QString &peerId, int limit = 100);
+    QVariantList loadMessages(const QString &peerId, int limit = 5000);
     //将网络层提供的在线用户列表同步到数据库
     bool synchronizePeers(const QVariantList &onlinePeers);
 private:
@@ -52,5 +52,5 @@ private:
     QSqlDatabase m_db;  //SQLite数据库连接句柄
     QString m_databasePath; //数据库文件的完整路径
     QString m_lastError;    //最近一次数据库操作产生的错误信息
-    QString m_connectionName;   //当前对象使用的唯一数据库连接名称
+    QString m_connectionName;   //当前对象使用的唯一数据库连接名称,每个DatabaseManager使用不同名称，避免连接相互覆盖
 };

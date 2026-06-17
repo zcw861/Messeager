@@ -22,10 +22,10 @@ class AppController : public QObject
     Q_OBJECT
     QML_ELEMENT
 
-    //提供给QML的用户列表，每个元素包含peerId、username、ip等字段
+    //提供给QML的用户列表，每个元素包含peerId、username、ip、online和updatedAt
     Q_PROPERTY(QVariantList peers READ peers NOTIFY peersChanged FINAL)
 
-    //提供给QML的当前聊天对象的历史消息列表
+    //提供给QML的当前选中用户的聊天记录
     Q_PROPERTY(QVariantList messages READ messages NOTIFY messagesChanged FINAL)
 
     //最近一次的错误信息
@@ -44,15 +44,15 @@ public:
     QString lastError() const;  //获取最近一次错误信息
     bool ready() const; //查询是否初始化完成
 
-    Q_INVOKABLE bool initialize(const QString &userName);   //初始化数据库和网络聊天服务
+    Q_INVOKABLE bool initialize(const QString &userName);   //初始化数据库和网络聊天服务，如果已经初始化则直接返回 true
 
     Q_INVOKABLE void selectPeer(const QString &peerId); //选择聊天对象并加载其聊天记录
 
-    Q_INVOKABLE void clearConversation();   //清除中的当前会话选择和消息缓存
+    Q_INVOKABLE void clearConversation();   //清除中的当前会话选择和消息缓存，使界面回到未选择用户状态
 
     Q_INVOKABLE bool deletePeer(const QString &peerId); //删除指定用户及其本地聊天记录
 
-    //向指定局域网用户发送消息并保存本地聊天记录
+    //向指定局域网用户发送消息并在数据库中保存本机发送记录
     Q_INVOKABLE void sendMessage(const QString &peerId,
                                  const QString &username,
                                  const QString &ip,
@@ -71,10 +71,10 @@ public:
 
 signals:
     void peersChanged();    //用户列表发生变化时发出，通知QML重新读取peers属性
-    void messagesChanged();     //当前聊天消息列表发生变化时发出
+    void messagesChanged();     //当前聊天消息列表发生变化时发出，通知QML刷新聊天列表
     void lastErrorChanged();    //近一次错误信息发生变化时发出
     void readyChanged();    //控制器初始化状态发生变化时发出
-    void peerDeleted(const QString &peerId);    //删除成功后通知QML。
+    void peerDeleted(const QString &peerId);    //删除成功后通知QML清理选中状态
     void operationFailed(const QString &message);   //业务操作失败时发出
 
     void fileRequestReceived(const QString &fromfp, const QString &fileName, qint64 fileSize); //收到对方文件发送请求
@@ -84,13 +84,13 @@ signals:
 private:    
     void synchronizeOnlineUsers();  //从PrivateChat读取在线用户，并同步到数据库
 
-    //处理网络层接收到的聊天消息
+    //处理网络层接收到的聊天消息，将发送者和消息保存到数据库
     void handleMessageReceived(const QString &fromName,
                                const QString &fromIp,
                                const QString &message);
 
-    void refreshPeers();    //从数据库重新读取用户列表
-    void refreshMessages();     //从数据库重新读取当前聊天对象的消息记录
+    void refreshPeers();    //从数据库重新读取用户列表，并在内容变化时通知 QML
+    void refreshMessages();     //从数据库重新读取当前聊天对象的消息记录,并在内容变化时通知 QML
     void reportError(const QString &message);   //统一记录并报告业务错误
 
 private:
