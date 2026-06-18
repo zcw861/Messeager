@@ -58,6 +58,7 @@ struct PendingFileRequest {
 class TranslateFile : public QObject
 {
     Q_OBJECT
+
 public:
     explicit TranslateFile(QObject *parent = nullptr);
     ~TranslateFile();

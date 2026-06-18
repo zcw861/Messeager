@@ -41,8 +41,6 @@ struct UserInfo {
 class PrivateChat : public QObject
 {
     Q_OBJECT
-    //通知在线用户的前后端交互
-    Q_PROPERTY(QVariantList onlineUsers READ onlineUsers NOTIFY onlineUsersChanged)
 
 public:
     explicit PrivateChat(QObject *parent = nullptr);

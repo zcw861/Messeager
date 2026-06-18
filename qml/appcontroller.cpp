@@ -8,7 +8,7 @@
 //
 //     [v0.1.3] JiangFan    2026-06-14
 //          *增加文件发送功能(待完善)
-//     [v0.1.3] ZhouChengWei     2026-06-14 21:27:37
+//     [v0.1.4] ZhouChengWei     2026-06-14 21:27:37
 //         * 处理了因为给自己发送消息而接收导致显示2次的问题
 
 #include "appcontroller.h"
@@ -22,43 +22,21 @@ AppController::AppController(QObject *parent)
     : QObject(parent)
 {
     //在线用户列表发生变化,AppController执行数据库同步
-    connect(
-        &m_privateChat,
-        &PrivateChat::onlineUsersChanged,
-        this,
-        &AppController::synchronizeOnlineUsers
-    );
+    connect(&m_privateChat, &PrivateChat::onlineUsersChanged, this, &AppController::synchronizeOnlineUsers);
 
     //收到聊天消息
-    connect(
-        &m_privateChat,
-        &PrivateChat::messageReceived,
-        this,
-        &AppController::handleMessageReceived
-    );
+    connect(&m_privateChat, &PrivateChat::messageReceived, this, &AppController::handleMessageReceived);
 
     //收到文件请求
-    connect(
-        &m_translateFile,
-        &TranslateFile::fileRequestReceived,
-        this,
-        &AppController::fileRequestReceived
+    connect(&m_translateFile, &TranslateFile::fileRequestReceived, this, &AppController::fileRequestReceived
     );
 
     //文件传输进度条
-    connect(
-        &m_translateFile,
-        &TranslateFile::fileTransferProgress,
-        this,
-        &AppController::fileTransferProgress
+    connect(&m_translateFile, &TranslateFile::fileTransferProgress, this, &AppController::fileTransferProgress
     );
 
     //文件传输完成
-    connect(
-        &m_translateFile,
-        &TranslateFile::fileTransferFinished,
-        this,
-        &AppController::fileTransferFinished
+    connect(&m_translateFile, &TranslateFile::fileTransferFinished, this, &AppController::fileTransferFinished
     );
 
 }

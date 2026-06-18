@@ -5,6 +5,8 @@
 //     用于传输文件
 //     [v0.1.1] ZhouChengWei    2026-06-14 15:50:56
 //         * 实现传输文件的函数
+//     [v0.1.2] ZhouChengWei    2026-06-18 15:12:58
+//         * 修改了部分代码格式
 
 #include "translatefile.h"
 
@@ -286,7 +288,7 @@ void TranslateFile::acceptFile(const QString &ip, const QString &savePath)
         FileAck ack;
         ack.type = MSG_TYPE_FILE_ACK;
         ack.accept = 1;
-        ::send(clientfd, &ack, sizeof(ack), 0);
+        send(clientfd, &ack, sizeof(ack), 0);
 
         //接收文件数据
         receiveFileData(clientfd, ipStr, savePathStr, fileName, fileSize);
@@ -331,7 +333,7 @@ void TranslateFile::receiveFileData(int clientfd, const std::string &ip,
     if(!file.open(QIODevice::WriteOnly)){
         std::cerr << "无法创建文件: " << savePath << std::endl;
         emitFileError(ip, fileName, false);
-        ::close(clientfd);
+        close(clientfd);
         return;
     }
 
@@ -341,7 +343,7 @@ void TranslateFile::receiveFileData(int clientfd, const std::string &ip,
     while(true){
         //接收数据块头
         FileDataHeader header;
-        int ret = ::recv(clientfd, &header, sizeof(header), MSG_WAITALL);
+        int ret = recv(clientfd, &header, sizeof(header), MSG_WAITALL);
         if (ret != sizeof(header)) {
             std::cerr << "接收数据头失败" << std::endl;
             break;
@@ -372,7 +374,7 @@ void TranslateFile::receiveFileData(int clientfd, const std::string &ip,
         //接收数据块
         uint32_t received = 0;
         while(received < blockSize){
-            ret = ::recv(clientfd, buffer + received, blockSize - received, MSG_WAITALL);
+            ret = recv(clientfd, buffer + received, blockSize - received, MSG_WAITALL);
             if(ret <= 0){
                 std::cerr << "接收数据块失败" << std::endl;
                 break;
@@ -490,7 +492,7 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
 
     //等待应答
     FileAck ack;
-    int ret = ::recv(clientfd, &ack, sizeof(ack), MSG_WAITALL);
+    int ret = recv(clientfd, &ack, sizeof(ack), MSG_WAITALL);
     if(ret != sizeof(ack) || ack.type != MSG_TYPE_FILE_ACK || ack.accept != 1){
         std::cout << "文件被拒绝或应答错误" << std::endl;
         close(clientfd);
@@ -526,7 +528,7 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
         FileDataHeader header;
         header.type = MSG_TYPE_FILE_DATA;
         header.blockSize = htonl(static_cast<uint32_t>(bytesRead));
-        ::send(clientfd, &header, sizeof(header), 0);
+        send(clientfd, &header, sizeof(header), 0);
 
         //发送数据
         send(clientfd, buffer, bytesRead, 0);
