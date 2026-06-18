@@ -4,6 +4,8 @@
 // Description: 定义应用控制器，负责协调QML界面、数据库层和网络通信层，
 //              并向QML暴露用户列表、聊天记录、运行状态和错误信息。
 //
+//     [v0.1.2] HeZhiyuan    2026-06-18 19:03:47
+//         *修改消息接收处理函数，增加发送者peerId参数
 #pragma once
 
 #include <QObject>
@@ -85,9 +87,10 @@ private:
     void synchronizeOnlineUsers();  //从PrivateChat读取在线用户，并同步到数据库
 
     //处理网络层接收到的聊天消息，将发送者和消息保存到数据库
-    void handleMessageReceived(const QString &fromName,
-                               const QString &fromIp,
-                               const QString &message);
+    void handleMessageReceived( const QString &fromId,
+                                const QString &fromName,
+                                const QString &fromIp,
+                                const QString &message);
 
     void refreshPeers();    //从数据库重新读取用户列表，并在内容变化时通知 QML
     void refreshMessages();     //从数据库重新读取当前聊天对象的消息记录,并在内容变化时通知 QML

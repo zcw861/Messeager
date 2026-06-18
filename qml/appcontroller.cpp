@@ -10,6 +10,13 @@
 //          *增加文件发送功能(待完善)
 //     [v0.1.4] ZhouChengWei     2026-06-14 21:27:37
 //         * 处理了因为给自己发送消息而接收导致显示2次的问题
+//     [v0.1.5] HeZhiyuan    2026-06-18 19:23:35
+//         * 在初始化数据库后读取或创建本机永久peerId
+//           在PrivateChat网络线程启动前，将持久化peerId设置到网络层
+//           在线用户同步时使用网络层提供的UUID作为数据库peer_id
+//           IP不作为用户唯一标识
+//           接收消息时使用发送者的peerId保存用户信息和聊天记录
+//           发送消息时向网络层传递目标peerId，由网络层查询目标当前IP
 
 #include "appcontroller.h"
 
@@ -366,17 +373,18 @@ void AppController::synchronizeOnlineUsers()
         //将每一个网络用户转换为QVariantMap
         const QVariantMap networkUser = item.toMap();
 
+        const QString peerId = networkUser.value(QStringLiteral("id")).toString().trimmed();
+
         const QString name = networkUser.value(QStringLiteral("name")).toString().trimmed();
 
         const QString ip = networkUser.value(QStringLiteral("ip")).toString().trimmed();
 
-        //name或ip缺失的网络记录不能写入数据库
+        //name,peerId,ip缺失的记录不能写入数据库
         if (name.isEmpty() || ip.isEmpty()) {continue;}
 
         QVariantMap peer;
 
-        //当前没有UUID，第一阶段使用IP作为peerId。
-        peer.insert(QStringLiteral("peerId"), ip);
+        peer.insert(QStringLiteral("peerId"), peerId);
         peer.insert(QStringLiteral("username"), name);
         peer.insert(QStringLiteral("ip"), ip);
         peer.insert(QStringLiteral("online"), true);
@@ -395,33 +403,38 @@ void AppController::synchronizeOnlineUsers()
 }
 
 //处理网络层收到的聊天消息，先保证发送者存在，再保存消息，最后刷新用户列表和当前会话
-void AppController::handleMessageReceived(const QString &fromName,
-                                          const QString &fromIp,
-                                          const QString &message)
+void AppController::handleMessageReceived( const QString &fromId,
+                                           const QString &fromName,
+                                           const QString &fromIp,
+                                           const QString &message)
 {
     //忽略来源IP为本机的消息，避免本机消息被重复保存和显示。
     if (fromIp == m_privateChat.localIp()) {
         return;
     }
 
-    //对网络层传入的数据进行标准化
+    //对网络层传入的数据进行去除字符串首尾空白
+    const QString normalizedPeerId = fromId.trimmed();
     const QString normalizedName = fromName.trimmed();
     const QString normalizedIp = fromIp.trimmed();
     const QString normalizedMessage = message.trimmed();
 
+    //按照ID判断消息是否来自本机
+    if (!normalizedPeerId.isEmpty()&& normalizedPeerId == m_privateChat.localId()) { return;}
+
     //ip和消息正文是保存消息所必需的数据
-    if (normalizedIp.isEmpty() || normalizedMessage.isEmpty()) { return;}
+    if (normalizedPeerId.isEmpty() || normalizedIp.isEmpty() || normalizedMessage.isEmpty()) { return;}
 
     //对方没有提供有效用户名时，使用ip作为界面显示名称
     const QString displayName = normalizedName.isEmpty() ? normalizedIp : normalizedName;
 
-    //当前阶段使用ip作为peerId。
-    if (!m_database.upsertPeer(normalizedIp, displayName, normalizedIp, true)) {
+    //先保证发送者存在于peers表
+    if (!m_database.upsertPeer(normalizedPeerId, displayName, normalizedIp, true)) {
         reportError(QStringLiteral("保存消息发送者失败：") + m_database.lastError());
         return;
     }
 
-    if (!m_database.saveMessage(normalizedIp, false, normalizedMessage)) {
+    if (!m_database.saveMessage(normalizedPeerId, false, normalizedMessage)) {
         reportError(QStringLiteral("保存接收消息失败：") + m_database.lastError());
         return;
     }
@@ -430,7 +443,7 @@ void AppController::handleMessageReceived(const QString &fromName,
     refreshPeers();
 
     //当消息属于当前会话时刷新聊天记录
-    if (m_currentPeerId == normalizedIp) {refreshMessages();}
+    if (m_currentPeerId == normalizedPeerId) { refreshMessages();}
 }
 
 //从数据库重新加载用户列表，只有新数据与缓存不同时才更新属性并通知 QML
@@ -448,7 +461,6 @@ void AppController::refreshPeers()
 void AppController::refreshMessages()
 {
     QVariantList loadedMessages;
-
     if (!m_currentPeerId.isEmpty()) { loadedMessages = m_database.loadMessages(m_currentPeerId);}
 
     if (loadedMessages == m_messages) { return;}
