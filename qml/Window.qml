@@ -24,12 +24,14 @@
 //
 //     [v0.1.6] JiangFan    2026-06-14 23:28
 //         * 增加处理文件传输的弹窗及其功能
-//
+//     [v0.1.7] JiangFan    2026-06-18
+//         * 重构：使用Layout管理主窗口结构
 
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import se.qt.messager
+import QtQuick.Layouts
 
 ApplicationWindow {
    id: root
@@ -159,57 +161,140 @@ ApplicationWindow {
        anchors.fill: parent
        color: "white"
 
-       PeerPanel {
-           id: peerPanel
+       RowLayout {
+           id: mainLayout
 
-           width: 200
-           anchors.left: parent.left
-           anchors.top: parent.top
-           anchors.bottom: parent.bottom
-           //Window.qml当前选中的用户id传给PeerPanel，用于左侧高亮
-           currentPeerId: root.currentPeerId
-           //用户列表数据直接来自AppController的peer属性
-           peerModel: appController.peers
+           anchors.fill:parent
+           spacing: 0
 
-           //     [v0.1.2] HeZhiyuan    2026-06-03 16:37:40
-           //         * 用户点击左侧列表项后，这里会被调用
-           //并通知AppController从数据库读取该用户的历史消息
-           onPeerSelected: function(peerId, username, ip) {
-               //切换到另一个用户时，先清空当前前端消息
-               if (root.currentPeerId !== peerId){
-                   inputPanel.clear()
+           PeerPanel {
+               id: peerPanel
+
+               Layout.preferredWidth: 200
+               Layout.fillHeight: true
+
+               //Window.qml当前选中的用户id传给PeerPanel，用于左侧高亮
+               currentPeerId: root.currentPeerId
+               //用户列表数据直接来自AppController的peer属性
+               peerModel: appController.peers
+
+               //     [v0.1.2] HeZhiyuan    2026-06-03 16:37:40
+               //         * 用户点击左侧列表项后，这里会被调用
+               //并通知AppController从数据库读取该用户的历史消息
+               onPeerSelected: function(peerId, username, ip) {
+                   //切换到另一个用户时，先清空当前前端消息
+                   if (root.currentPeerId !== peerId){
+                       inputPanel.clear()
+                   }
+                   //保存当前会话所需的用户信息
+                   root.currentPeerId = peerId
+                   root.currentPeerName = username
+                   root.currentPeerIp = ip
+                   //通知控制器读取该用户的历史消息。
+                   appController.selectPeer(peerId)
+                   console.log("Main.qml 当前聊天对象:", peerId, username, ip)
                }
-               //保存当前会话所需的用户信息
-               root.currentPeerId = peerId
-               root.currentPeerName = username
-               root.currentPeerIp = ip
-               //通知控制器读取该用户的历史消息。
-               appController.selectPeer(peerId)
-               console.log("Main.qml 当前聊天对象:", peerId, username, ip)
+
+               //     [v0.1.2] HeZhiyuan    2026-06-04 20:47:45
+               //         * 再次点击当前用户会关闭聊天窗口
+               onPeerClosed: {
+                   root.currentPeerId = ""
+                   root.currentPeerName = ""
+                   root.currentPeerIp = ""
+
+                   //关闭聊天窗口时清空前端消息
+                   inputPanel.clear()
+                   //清除控制器当前聊天对象和前端消息属性。
+                   appController.clearConversation()
+                   console.log("Main.qml 已回到初始界面")
+               }
+
+               onPeerDeleteRequested: function(peerId) {
+                   appController.deletePeer(peerId)
+               }
+
+               //接收PeerPanel发送的  搜索框改变  的信号
+               onSearchTextChanged: function(keyword) {
+                   //待改
+                   console.log("搜索用户", keyword)
+               }
            }
 
-           //     [v0.1.2] HeZhiyuan    2026-06-04 20:47:45
-           //         * 再次点击当前用户会关闭聊天窗口
-           onPeerClosed: {
-               root.currentPeerId = ""
-               root.currentPeerName = ""
-               root.currentPeerIp = ""
+           Rectangle {
+               id: rightPanel
 
-               //关闭聊天窗口时清空前端消息
-               inputPanel.clear()
-               //清除控制器当前聊天对象和前端消息属性。
-               appController.clearConversation()
-               console.log("Main.qml 已回到初始界面")
-           }
+               Layout.fillWidth: true
+               Layout.fillHeight: true
 
-           onPeerDeleteRequested: function(peerId) {
-               appController.deletePeer(peerId)
-           }
+               color: "#FFFFFF"
 
-           //接收PeerPanel发送的  搜索框改变  的信号
-           onSearchTextChanged: function(keyword) {
-               //待改
-               console.log("搜索用户", keyword)
+               ColumnLayout {
+                   id: rightLayout
+
+                   anchors.fill: parent
+                   spacing: 0
+
+                   Item {
+                      id: rightArea
+
+                      Layout.fillHeight: true
+                      Layout.fillWidth: true
+
+                      //没有选择用户时显示提示区域
+                      Rectangle {
+                          id: emptyPanel
+
+                          anchors.fill: parent
+
+                          color: "#FAFAFA"
+                          visible: root.currentPeerId === ""
+
+                          Text {
+                              text: qsTr("点击左侧用户开始聊天")
+                              font.pixelSize: 16
+                              color: "#999999"
+                              anchors.centerIn: parent
+                          }
+                      }
+
+                      //右侧聊天窗口：点击左侧用户后才显示
+                      ChatPanel {
+                          id: chatPanel
+
+                          anchors.fill: parent
+
+                          visible: root.currentPeerId !== ""
+
+                          currentPeerId: root.currentPeerId
+                          currentPeerName: root.currentPeerName
+
+                          //把窗口中的消息模型传给聊天显示区
+                          messageModel: appController.messages
+                          color: "#FFFFFF"
+                      }
+                   }
+
+                   //底部输入框：点击左侧用户后才显示
+                   InputPanel {
+                       id: inputPanel
+
+                       Layout.fillWidth: true
+                       Layout.preferredHeight: 200
+
+                       visible: root.currentPeerId !== ""
+
+                       currentPeerId: root.currentPeerId
+
+                       onSendRequested: function(content) {
+                           root.trySendMessage(content)
+                       }
+
+                       //处理文件按钮的点击
+                       onFileSendRequested: function(fileUrl) {
+                           root.trySendFile(fileUrl)
+                       }
+                   }
+               }
            }
        }
 
@@ -226,70 +311,6 @@ ApplicationWindow {
                                  peerPanel.clearSearchFocus()
                       }
            }
-       }
-
-
-       //没有选择用户时显示提示区域
-       Rectangle {
-           id: emptyPanel
-
-           anchors.left: peerPanel.right
-           anchors.right: background.right
-           anchors.top: background.top
-           anchors.bottom: background.bottom
-
-           color: "#FAFAFA"
-           visible: root.currentPeerId === ""
-
-           Text {
-               text: qsTr("点击左侧用户开始聊天")
-               font.pixelSize: 16
-               color: "#999999"
-               anchors.centerIn: parent
-           }
-       }
-
-       //底部输入框：点击左侧用户后才显示
-       InputPanel {
-           id: inputPanel
-
-           height: 200
-
-           anchors.left: peerPanel.right
-           anchors.right: background.right
-           anchors.bottom: background.bottom
-
-           visible: root.currentPeerId !== ""
-
-           currentPeerId: root.currentPeerId
-
-           onSendRequested: function(content) {
-               root.trySendMessage(content)
-           }
-
-           //处理文件按钮的点击
-           onFileSendRequested: function(fileUrl) {
-               root.trySendFile(fileUrl)
-           }
-       }
-
-       //右侧聊天窗口：点击左侧用户后才显示
-       ChatPanel {
-           id: chatPanel
-
-           anchors.left: peerPanel.right
-           anchors.right: background.right
-           anchors.top: background.top
-           anchors.bottom: inputPanel.top
-
-           visible: root.currentPeerId !== ""
-
-           currentPeerId: root.currentPeerId
-           currentPeerName: root.currentPeerName
-
-           //把窗口中的消息模型传给聊天显示区
-           messageModel: appController.messages
-           color: "#FFFFFF"
        }
 
        //接收文件时选择保存路径
