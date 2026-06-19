@@ -17,7 +17,9 @@
 //           IP不作为用户唯一标识
 //           接收消息时使用发送者的peerId保存用户信息和聊天记录
 //           发送消息时向网络层传递目标peerId，由网络层查询目标当前IP
-
+//     [v0.1.6] HeZhiyuan    2026-06-19 12:22:31
+//         * 修改初始化函数：在初始化数据库成功后，网络服务启动前加入本机peerId初始化
+//           并将peerId设置到网络层，避免每次运行都会给本机生成一个全新的id
 #include "appcontroller.h"
 
 #include <QVariantMap>
@@ -90,17 +92,32 @@ bool AppController::initialize(const QString &userName)
     }
 
     if (!m_database.open()) {
-        reportError(
-            QStringLiteral("数据库打开失败：")
-            + m_database.lastError());
+        reportError(QStringLiteral("数据库打开失败：") + m_database.lastError());
         return false;
     }
 
     //数据库连接成功后创建必要的数据表和索引
     if (!m_database.initSchema()) {
-        reportError(
-            QStringLiteral("数据库初始化失败：")
-            + m_database.lastError());
+        reportError(QStringLiteral("数据库初始化失败：") + m_database.lastError());
+        return false;
+    }
+
+
+    //数据库存储的peerId。
+    QString persistentLocalPeerId;
+
+    //本次运行临时生成的候选UUID
+    //第一次运行：数据库中没有本机ID，将该候选UUID保存到local_peer_id表
+    //后续运行：数据库中已经有本机ID，忽略本次新生成的候选UUID，并把以前保存的id返回到persistentLocalPeerId
+    if (!m_database.loadOrCreateLocalPeerId(m_privateChat.localId(), persistentLocalPeerId)) {
+        reportError( QStringLiteral("初始化本机永久ID失败：") + m_database.lastError());
+        return false;
+    }
+
+    //须在网络层启动之前，把数据库中的永久ID设置回网络层，
+    //如果在start之后设置，UDP广播线程可能已经使用临时UUID，造成同一次运行中出现两个身份
+    if (!m_privateChat.setLocalId(persistentLocalPeerId)) {
+        reportError(QStringLiteral("设置网络层本机永久ID失败"));
         return false;
     }
 
