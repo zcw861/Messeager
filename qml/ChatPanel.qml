@@ -10,21 +10,30 @@
 *
 *
 * Change Log:
-* [v0.1.0]    2026-06-01
+* [v0.1.0] JiangFan   2026-06-01
 * * Initial creation
 *
-* [v0.2.0]    2026-06-03
+* [v0.2.0] JiangFan   2026-06-03
 * * 实现聊天框的发送消息，增加enter, ctrl + enter事件处理
+*
+* [v0.2.2] HeZhiyuan  2026-06-05 22:39:59
+* * 增加聊天消息前端显示功能，发送消息后，当前聊天窗口会立即显示自己发送的内容。
+*
+* [v0.2.3] HeZhiyuan  2026-06-07 13:57:18
+* * 修改部分ui颜色
+*
+* [v0.2.4] HeZhiyuan  2026-06-13 17:47:01
+* * 消息列表改为接收AppController提供的QVariantList。
+* * delegate使用modelData.fromMe和modelData.content。
+*
+* [v0.2.5] JiangFan   2026-06-20
+* * 重构：使用Layout管理主窗口结构
+* * 修复：消息滚动条和消息内容重合的bug
 */
-//     [v0.2.2] HeZhiyuan    2026-06-05 22:39:59
-//         * 增加聊天消息前端显示功能，发送消息后，当前聊天窗口会立即显示自己发送的内容。
-//     [v0.2.3] HeZhiyuan    2026-06-07 13:57:18
-//         * 修改部分ui颜色
-//     [v0.2.4] HeZhiyuan    2026-06-13 17:47:01
-//         * 消息列表改为接收AppController提供的QVariantList。
-//           delegate使用modelData.fromMe和modelData.content。
+
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 Rectangle{
     id: root
@@ -36,130 +45,142 @@ Rectangle{
 
     color: "#FFFFFF"
 
-    //顶部栏
-    Rectangle {
-        id: chatHeader
-        height: 50
+    ColumnLayout {
+        id: chatLayout
 
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
+        anchors.fill: parent
+        spacing: 0
 
-        color: "#FFFFFF"
-
-        //分割线
+        //顶部栏
         Rectangle {
-            height: 1
-            color: "#E5E5E5"
+            id: chatHeader
 
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-        }
+            Layout.preferredHeight: 50
+            Layout.fillWidth: true
 
-        Text {
-            id: chatTitle
-            text: currentPeerName
+            color: "#FFFFFF"
 
-            font.pixelSize: 15
-            font.bold: true
-            color: "#333333"
+            //分割线
+            Rectangle {
+                height: 1
+                color: "#E5E5E5"
 
-            anchors.left: parent.left
-            anchors.leftMargin: 15
-            anchors.verticalCenter: parent.verticalCenter
-        }
-    }
-
-    //消息显示
-    Rectangle {
-        id: messageArea
-
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: chatHeader.bottom
-        anchors.bottom: parent.bottom //编辑框上方
-
-        color: "#F5F5F5"
-
-        //没有消息时的提示
-        Text {
-            text: qsTr("暂无消息")
-            color: "#999999"
-            font.pixelSize: 15
-            anchors.centerIn: parent
-
-            visible: messageList.count === 0
-        }
-
-        //消息列表
-        ListView {
-            id: messageList
-
-            anchors.fill: parent
-            anchors.margins: 12
-
-            clip: true
-            spacing: 8
-
-            model: root.messageModel
-
-            //每新增一条消息，自动滚动到底部
-            onCountChanged: {
-                Qt.callLater(function() {
-                    messageList.positionViewAtEnd()
-                })
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
             }
 
-            delegate: Item {
-                required property var modelData
+            Text {
+                id: chatTitle
+                text: currentPeerName
 
-                readonly property bool fromMe:
-                    modelData.fromMe
+                font.pixelSize: 15
+                font.bold: true
+                color: "#333333"
 
-                readonly property string content:
-                    modelData.content
+                anchors.left: parent.left
+                anchors.leftMargin: 15
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
 
-                width: messageList.width
-                height: messageBubble.height + 8
 
-                //使用 required property 接收 ListModel 角色数据
-                // required property bool fromMe
-                // required property string content
+        //消息显示
+        Rectangle {
+            id: messageArea
 
-                Rectangle {
-                    id: messageBubble
+            Layout.fillWidth: true
+            Layout.fillHeight: true
 
-                    width: Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
-                    height: messageText.implicitHeight + 18
+            color: "#F5F5F5"
 
-                    //自己发送的消息靠右
-                    x: fromMe ? parent.width - width : 0
+            //没有消息时的提示
+            Text {
+                text: qsTr("暂无消息")
+                color: "#999999"
+                font.pixelSize: 15
+                anchors.centerIn: parent
 
-                    radius: 8
-                    color: fromMe ? "#12B7F5" : "#FFFFFF"
+                visible: messageList.count === 0
+            }
 
-                    Text {
-                        id: messageText
+            //消息列表
+            ListView {
+                id: messageList
 
-                        text: content
-                        font.pixelSize: 14
-                        color: fromMe ? "#FFFFFF" : "#222222"
+                anchors.fill: parent
+                anchors.margins: 12
 
-                        width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
-                        wrapMode: Text.Wrap
+                clip: true
+                spacing: 8
 
-                        anchors.left: parent.left
-                        anchors.leftMargin: 12
-                        anchors.verticalCenter: parent.verticalCenter
+                model: root.messageModel
+
+                //每新增一条消息，自动滚动到底部
+                onCountChanged: {
+                    Qt.callLater(function() {
+                        messageList.positionViewAtEnd()
+                    })
+                }
+
+                delegate: Item {
+                    required property var modelData
+
+                    readonly property bool fromMe:
+                        modelData.fromMe
+
+                    readonly property string content:
+                        modelData.content
+
+                    width: messageList.width
+                    height: messageBubble.height + 8
+
+                    //使用 required property 接收 ListModel 角色数据
+                    // required property bool fromMe
+                    // required property string content
+
+                    Rectangle {
+                        id: messageBubble
+
+                        width: Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
+                        height: messageText.implicitHeight + 18
+
+                        //自己发送的消息靠右
+                        x: fromMe ? parent.width - width : 0
+
+                        radius: 8
+                        color: fromMe ? "#12B7F5" : "#FFFFFF"
+
+                        Text {
+                            id: messageText
+
+                            text: content
+                            font.pixelSize: 14
+                            color: fromMe ? "#FFFFFF" : "#222222"
+
+                            width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
+                            wrapMode: Text.Wrap
+
+                            anchors.left: parent.left
+                            anchors.leftMargin: 12
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
                     }
                 }
+
+                //提供右侧垂直滚动条，用来显示当前滚动位置
+                ScrollBar.vertical: ScrollBar {
+                    parent: messageArea   //这一句很必要，不加的话，它下面都没用，会被messageList自动管理
+                                          //但如果直接放到上一级作为messageArea的孩子的话，就不会和messageList绑定
+                    anchors.top: messageList.top
+                    anchors.bottom: messageList.bottom
+                    anchors.left: messageList.right
+                    anchors.leftMargin: 4 //刚好贴到最边上，不会和消息重合
+                }
             }
-
-            ScrollBar.vertical: ScrollBar { }
         }
+
+
     }
-
-
 }
 
