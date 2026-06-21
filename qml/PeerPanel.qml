@@ -28,25 +28,31 @@
 * [v0.2.2]  JiangFan  2026-06-05
 * * 整理注释结构，完善左侧栏搜索功能,重写鼠标悬停变色逻辑
 *
-* Change Log:
 * [v0.2.3]  ZhouChengWei  2026-06-06
 * * 添加创建群聊按钮并且添加了相关菜单项
 *
-* Change Log:
 * [v0.2.4]  JiangFan  2026-06-10
 * * 增加左侧栏搜索框焦点清除功能
+*
 * [v0.2.5] HeZhiyuan 2026-06-13
 * * 删除临时测试ListModel。
 * * 新增peerModel外部模型属性。
 * * 使用QVariantList/QVariantMap的modelData读取用户数据。
 * * 增加左键限制和ReleaseWithinBounds点击策略。
-* *[v0.2.5] HeZhiyuan 2026-06-14
+*
+* [v0.2.5] HeZhiyuan 2026-06-14
 * * 增加删除请求信号
 * *[v0.2.6] ZhouChengWei 2026-06-14
 * * 修改了搜索栏布局
+*
+* *[v0.2.7] JiangFan 2026-06-21
+* * 重构：使用Layout管理主窗口结构
+*
 */
+
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 //左侧栏
 Rectangle {
@@ -92,51 +98,289 @@ Rectangle {
         return username.toLowerCase().indexOf(keyword) !== -1 || ip.toLowerCase().indexOf(keyword) !== -1
     }
 
-    Text {
-        id: peerTitle
-        text: qsTr("局域网用户")
-        font.pixelSize: 15
-        font.bold: true          //加粗
-        color: "#333333"         //灰色
 
-        anchors.left: parent.left
-        anchors.leftMargin: 10   //左边留10px空隙差不多
-        anchors.top: searchField.bottom  //顶部一样
-        anchors.topMargin: 10
+    ColumnLayout {
+        id: peerLayout
+
+        anchors.fill: parent
+        spacing: 0
+
+        //搜索框 + 加号
+        RowLayout {
+            id: searchArea
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: 50
+
+            spacing: 5
+
+            //Search
+            TextField {
+                id: searchField
+
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+                Layout.leftMargin: 10
+                Layout.alignment: Qt.AlignVCenter
+
+                placeholderText: qsTr("搜索用户")
+                font.pixelSize: 12
+
+                //Search background
+                background: Rectangle {
+                    radius: 10
+                    color: "#F2F2F2"
+                    border.color: "#b4b4b4"
+                    border.width: 1
+                }
+
+                //当输入内容发生变化时，向外发出信号
+                onTextChanged: {
+
+                    //记录当前搜索关键字
+                    peerPanel.searchKeyword = text.trim()
+
+                    // 向外传递关键字变化，后续可交给PeerModel / AppController处理
+                    peerPanel.searchTextChanged(peerPanel.searchKeyword)
+                }
+            }
+
+            //创建群聊按钮
+            Rectangle{
+                id: createGroupChat
+
+                Layout.preferredHeight: 30
+                Layout.preferredWidth: 30
+                Layout.rightMargin: 10
+                Layout.alignment: Qt.AlignVCenter
+
+                radius: 10
+                color: typeChange.hovered ? "#a9a9a9" : "#f5f5f5"
+
+                Text{
+                    text: "+"
+                    font.pointSize: 20
+                    color: "#e6e6fa"
+                    anchors.centerIn: parent
+                }
+
+                HoverHandler {
+                    id: typeChange
+                    cursorShape: Qt.PointingHandCursor
+                }
+
+                TapHandler{
+                    onTapped: {
+                        //清除搜索框焦点
+                        peerPanel.clearSearchFocus()
+
+                        featureSet.popup(createGroupChat, 0, createGroupChat.height)
+                    }
+                }
+
+
+                //创建群聊/添加好友等功能的菜单
+                Menu{
+                    id: featureSet
+                    width: 100
+
+                    MenuItem{
+                        text: qsTr("创建群聊")
+                        /*
+                        TapHandler{
+                            onTapped: inviteUserInterfaceLoader.item.show()
+                        }
+                        */
+                        //MenuItem本身就是可以点击的控件 并自带triggered信号,所以不应该用TapHandler
+                        onTriggered: {
+                            peerPanel.clearSearchFocus()
+                            inviteUserInterfaceLoader.item.show()
+                        }
+
+                    }
+                    MenuItem{
+                        text: qsTr("加好友")
+                    }
+                }
+            }
+
         }
 
-    //Search
-    TextField {
-        id: searchField
+        Text {
+            id: peerTitle
 
-        width: parent.width - 50
-        height: 30
+            Layout.fillWidth: true
+            Layout.leftMargin: 10
 
-        placeholderText: qsTr("搜索用户")
-        font.pixelSize: 12
+            text: qsTr("局域网用户")
+            font.pixelSize: 15
+            font.bold: true          //加粗
+            color: "#333333"         //灰色
 
-        anchors.left: parent.left
-        anchors.leftMargin: 10
-        anchors.top: parent.top       //标题框下方
-        anchors.topMargin: 10
+            }
 
-        //Search background
-        background: Rectangle {
-            radius: 10
-            color: "#F2F2F2"
-            border.color: "#b4b4b4"
-            border.width: 1
+        //用户列表
+        ListView {
+            id: peerListView
+
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.topMargin: 10
+
+            clip: true
+            spacing: 6
+
+            model: peerPanel.peerModel
+
+            //使用QVariantList/QVariantMap的modelData读取用户数据
+            delegate: Rectangle {
+                id: peerItem
+
+                required property var modelData
+                readonly property string peerId: modelData.peerId
+                readonly property string username: modelData.username
+                readonly property string ip: modelData.ip
+                readonly property bool online: modelData.online
+
+                width: peerListView.width - 20
+                radius: 10
+
+                //当前用户是否匹配关键字
+                property bool matched: peerPanel.matchSearch(username, ip)
+
+                //当前用户是否被选中
+                property bool selected: peerPanel.currentPeerId === peerId
+
+                //不匹配--> 高度为0 --> 隐藏
+                height: matched ? 56 : 0
+                visible: matched
+
+                //选中 > 悬停 > 默认
+                color: selected ? "#E8F3FF"
+                                : hoverHandler.hovered ? "#EEEEEE"
+                                : "#F5F5F5"
+
+                border.color: selected ? "#9BCBFF"
+                                       : hoverHandler.hovered ? "#D0D0D0"
+                                       : "#E0E0E0"
+
+                border.width: 1
+
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                //在线状态圆点
+                Rectangle {
+                    id: statusDot
+
+                    width: 10
+                    height: 10
+                    radius: 5
+                    color: online ? "#00CA00" : "#B8B8B8"
+
+                    anchors.left: parent.left
+                    anchors.leftMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                //用户名
+                Text {
+                    id: usernameText
+
+                    text: username
+                    font.pixelSize: 13
+                    font.bold: true
+                    color: "#1F2329"
+
+                    anchors.left: statusDot.right
+                    anchors.leftMargin: 10
+                    anchors.top: parent.top
+                    anchors.topMargin: 9
+                }
+
+                //IP 地址
+                Text {
+                    id: ipText
+
+                    text: ip
+                    font.pixelSize: 12
+                    color: "#6B7280"
+
+                    anchors.left: usernameText.left
+                    anchors.top: usernameText.bottom
+                    anchors.topMargin: 5
+                }
+
+               //鼠标悬停处理
+                HoverHandler {
+                    id: hoverHandler
+                    cursorShape: Qt.PointingHandCursor
+                }
+
+               //根据点击不同的用户，做出不同的操作
+                TapHandler {
+                    id: tapHandler
+                    acceptedButtons: Qt.LeftButton
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                    onTapped: {
+                        //清除搜索框焦点
+                        peerPanel.clearSearchFocus()
+
+                        //如果点击的是当前正在聊天的用户，则关闭聊天窗口，回到初始界面
+                        if (peerPanel.currentPeerId === peerId) {
+                            peerPanel.peerClosed()
+                            console.log("关闭当前聊天窗口:", peerId, username)
+                            return
+                        }
+
+                        //否则切换到该用户
+                        peerPanel.peerSelected(peerId, username, ip)
+
+                        //调试输出，后续可以删除
+                        console.log("选择用户:", peerId, username, ip)
+                    }
+                }
+
+                //打开用户操作菜单。
+                TapHandler {
+                    id: rightTapHandler
+
+                    acceptedButtons: Qt.RightButton
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                    onTapped: function(eventPoint, button) {
+                        peerPanel.clearSearchFocus()
+
+                        //记录当前右键点击的用户。
+                        peerPanel.pendingDeletePeerId = peerItem.peerId
+                        peerPanel.pendingDeletePeerName = peerItem.username
+
+                        //eventPoint.position 是相对于 peerItem 的坐标，
+                        //这里转换为相对于 peerPanel 的坐标。
+                        const menuPosition = peerItem.mapToItem(
+                            peerPanel,
+                            eventPoint.position.x,
+                            eventPoint.position.y
+                        )
+
+                        peerContextMenu.x = menuPosition.x
+                        peerContextMenu.y = menuPosition.y
+                        peerContextMenu.open()
+                    }
+                }
+            }
+
+
+            TapHandler {
+                id: clearSearchHandler
+
+                onTapped: {
+                    peerPanel.clearSearchFocus()
+                }
+            }
+
         }
 
-        //当输入内容发生变化时，向外发出信号
-        onTextChanged: {
-
-            //记录当前搜索关键字
-            peerPanel.searchKeyword = text.trim()
-
-            // 向外传递关键字变化，后续可交给PeerModel / AppController处理
-            peerPanel.searchTextChanged(peerPanel.searchKeyword)
-        }
     }
 
     //清楚搜索框焦点
@@ -157,169 +401,6 @@ Rectangle {
                 && pointInsearchField.y >= 0 && pointInsearchField.y <= searchField.height
     }
 
-    ListView {
-        id: peerListView
-
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: peerTitle.bottom
-        anchors.topMargin: 12
-        anchors.bottom: parent.bottom
-
-        clip: true
-        spacing: 6
-
-        model: peerPanel.peerModel
-
-        //使用QVariantList/QVariantMap的modelData读取用户数据
-        delegate: Rectangle {
-            id: peerItem
-
-            required property var modelData
-            readonly property string peerId: modelData.peerId
-            readonly property string username: modelData.username
-            readonly property string ip: modelData.ip
-            readonly property bool online: modelData.online
-
-            width: peerListView.width - 20
-            radius: 10
-
-            //当前用户是否匹配关键字
-            property bool matched: peerPanel.matchSearch(username, ip)
-
-            //当前用户是否被选中
-            property bool selected: peerPanel.currentPeerId === peerId
-
-            //不匹配--> 高度为0 --> 隐藏
-            height: matched ? 56 : 0
-            visible: matched
-
-            //选中 > 悬停 > 默认
-            color: selected ? "#E8F3FF"
-                            : hoverHandler.hovered ? "#EEEEEE"
-                            : "#F5F5F5"
-
-            border.color: selected ? "#9BCBFF"
-                                   : hoverHandler.hovered ? "#D0D0D0"
-                                   : "#E0E0E0"
-
-            border.width: 1
-
-            anchors.horizontalCenter: parent.horizontalCenter
-
-            //在线状态圆点
-            Rectangle {
-                id: statusDot
-
-                width: 10
-                height: 10
-                radius: 5
-                color: online ? "#00CA00" : "#B8B8B8"
-
-                anchors.left: parent.left
-                anchors.leftMargin: 12
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            //用户名
-            Text {
-                id: usernameText
-
-                text: username
-                font.pixelSize: 13
-                font.bold: true
-                color: "#1F2329"
-
-                anchors.left: statusDot.right
-                anchors.leftMargin: 10
-                anchors.top: parent.top
-                anchors.topMargin: 9
-            }
-
-            //IP 地址
-            Text {
-                id: ipText
-
-                text: ip
-                font.pixelSize: 12
-                color: "#6B7280"
-
-                anchors.left: usernameText.left
-                anchors.top: usernameText.bottom
-                anchors.topMargin: 5
-            }
-
-           //鼠标悬停处理
-            HoverHandler {
-                id: hoverHandler
-                cursorShape: Qt.PointingHandCursor
-            }
-
-           //根据点击不同的用户，做出不同的操作
-            TapHandler {
-                id: tapHandler
-                acceptedButtons: Qt.LeftButton
-                gesturePolicy: TapHandler.ReleaseWithinBounds
-
-                onTapped: {                    
-                    //清除搜索框焦点
-                    peerPanel.clearSearchFocus()
-
-                    //如果点击的是当前正在聊天的用户，则关闭聊天窗口，回到初始界面
-                    if (peerPanel.currentPeerId === peerId) {
-                        peerPanel.peerClosed()
-                        console.log("关闭当前聊天窗口:", peerId, username)
-                        return
-                    }
-
-                    //否则切换到该用户
-                    peerPanel.peerSelected(peerId, username, ip)
-
-                    //调试输出，后续可以删除
-                    console.log("选择用户:", peerId, username, ip)
-                }
-            }
-
-            //打开用户操作菜单。
-            TapHandler {
-                id: rightTapHandler
-
-                acceptedButtons: Qt.RightButton
-                gesturePolicy: TapHandler.ReleaseWithinBounds
-
-                onTapped: function(eventPoint, button) {
-                    peerPanel.clearSearchFocus()
-
-                    //记录当前右键点击的用户。
-                    peerPanel.pendingDeletePeerId = peerItem.peerId
-                    peerPanel.pendingDeletePeerName = peerItem.username
-
-                    //eventPoint.position 是相对于 peerItem 的坐标，
-                    //这里转换为相对于 peerPanel 的坐标。
-                    const menuPosition = peerItem.mapToItem(
-                        peerPanel,
-                        eventPoint.position.x,
-                        eventPoint.position.y
-                    )
-
-                    peerContextMenu.x = menuPosition.x
-                    peerContextMenu.y = menuPosition.y
-                    peerContextMenu.open()
-                }
-            }
-        }
-
-
-        TapHandler {
-            id: clearSearchHandler
-
-            onTapped: {
-                peerPanel.clearSearchFocus()
-            }
-        }
-
-    }
-
     //用户列表右键菜单。
     Menu {
         id: peerContextMenu
@@ -331,64 +412,6 @@ Rectangle {
 
             onTriggered: {
                 deletePeerDialog.open()
-            }
-        }
-    }
-
-    //创建群聊按钮
-    Rectangle{
-        id: createGroupChat
-        width: 30
-        height:  30
-        radius: 10
-        color: typeChange.hovered ? "#a9a9a9" : "#f5f5f5"
-        anchors.leftMargin: 5
-        anchors.left: searchField.right
-        anchors.top: searchField.top
-
-        Text{
-            text: "+"
-            font.pointSize: 20
-            color: "#e6e6fa"
-            anchors.centerIn: parent
-        }
-
-        HoverHandler {
-            id: typeChange
-            cursorShape: Qt.PointingHandCursor
-        }
-
-        TapHandler{
-            onTapped: {
-                //清除搜索框焦点
-                peerPanel.clearSearchFocus()
-
-                featureSet.popup(createGroupChat, 0, createGroupChat.height)
-            }
-        }
-
-
-        //创建群聊/添加好友等功能的菜单
-        Menu{
-            id: featureSet
-            width: 100
-
-            MenuItem{
-                text: qsTr("创建群聊")
-                /*
-                TapHandler{
-                    onTapped: inviteUserInterfaceLoader.item.show()
-                }
-                */
-                //MenuItem本身就是可以点击的控件 并自带triggered信号,所以不应该用TapHandler
-                onTriggered: {
-                    peerPanel.clearSearchFocus()
-                    inviteUserInterfaceLoader.item.show()
-                }
-
-            }
-            MenuItem{
-                text: qsTr("加好友")
             }
         }
     }

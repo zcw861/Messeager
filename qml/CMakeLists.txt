@@ -11,6 +11,13 @@ find_package(Qt6 REQUIRED COMPONENTS Quick Sql Qml QuickDialogs2)
 qt_standard_project_setup(REQUIRES 6.11)
 
 qt_add_executable(appMessager  WIN32)
+
+set_source_files_properties(
+    ../source/file.svg
+    PROPERTIES
+        QT_RESOURCE_ALIAS source/file.svg
+)
+
 qt_add_qml_module(appMessager
     URI "se.qt.messager"
     VERSION 1.0
@@ -22,6 +29,8 @@ qt_add_qml_module(appMessager
                 Window.qml
                 InputPanel.qml
                 InviteUserInterface.qml
+    RESOURCES
+                ../source/file.svg
 )
 target_compile_features(appMessager PRIVATE cxx_std_23)
 target_link_libraries(appMessager

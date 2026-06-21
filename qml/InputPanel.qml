@@ -11,10 +11,12 @@
 //         *  增加文件发送按钮、文件选择对话框
 //     [v0.1.4] JiangFan    2026-06-15
 //         *  更改消息发送框（文件、发送按钮、文本框）的形式，增加ScrollView,支持输入框滑动
-//
+//     [v0.1.5] JiangFan    2026-06-20
+//         *  重构：使用Layout管理主窗口结构
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
+import QtQuick.Layouts
 
 Item {
     id: root
@@ -57,7 +59,7 @@ Item {
 
         title: qsTr("请选择要发送的文件")
         fileMode:  FileDialog.OpenFile
-        nameFilters: [qsTr("所有文件")]
+        nameFilters: [qsTr("所有文件(*)")]
 
         onAccepted:  {
             if (selectedFile.toString().length === 0)
@@ -74,168 +76,193 @@ Item {
     Rectangle {
         id: inputBar
 
-        height: 200
         color: "#FFFFFF"
+        anchors.fill: parent
 
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        //输入栏顶部分割线
-        Rectangle {
-            height: 1
-            color: "#E5E5E5"
 
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-        }
+        ColumnLayout {
+            id: inputLayout
 
-        //文件按钮
-        Rectangle {
-            id: fileButton
+            anchors.fill: parent
+            spacing: 0
 
-            width: 50
-            height: 30
-            radius: 10
+            //输入栏顶部分割线
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
 
-            enabled: root.currentPeerId !== ""
-            opacity: enabled ? 1 : 0.5
-
-            color: fileButtonHover.hovered && fileButton.enabled ? "#F2F3F5" : "#FFFFFF"
-            //border.color: "#DCDCDC"
-            //border.width: 1
-
-            anchors.left: parent.left
-            anchors.leftMargin: 10
-            anchors.top: parent.top
-            anchors.topMargin: 10
-
-            Text {
-                text: qsTr("📄文件")
-                font.pixelSize: 15
-                color: "#333333"
-                anchors.centerIn: parent
+                color: "#E5E5E5"
             }
 
-            HoverHandler {
-                id: fileButtonHover
-                cursorShape: fileButton.enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
-            }
+            //输入工具栏：文件、表情、截图等功能入口
+            Rectangle {
+                id: toolBar
 
-            TapHandler {
-                enabled: fileButton.enabled
-                acceptedButtons: Qt.LeftButton
-                gesturePolicy: TapHandler.ReleaseWithinBounds
+                Layout.fillWidth: true
+                Layout.preferredHeight: 38
 
-                onTapped: {
-                    fileDialog.open()
-                }
-            }
-        }
+                color: "#FFFFFF"
 
-        ScrollView {
-            id: inputScrollView
+                //文件按钮
+                Rectangle {
+                    id: fileButton
 
-            anchors.left: parent.left
-            anchors.leftMargin: 15
-            anchors.right: parent.right  //让他包含发送按钮
-            anchors.rightMargin: 10
-            anchors.top: parent.top
-            anchors.topMargin: 40
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 40  //保持在发送按钮上方，防止文字被覆盖
+                    width: 50
+                    height: 30
+                    radius: 10
 
-            clip: true
+                    enabled: root.currentPeerId !== ""
+                    opacity: enabled ? 1 : 0.5
 
-            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-            ScrollBar.vertical.policy: ScrollBar.AsNeeded
-
-            TextArea {
-                id: inputArea
-
-                placeholderText: qsTr("请输入消息......")
-                font.pixelSize: 14
-                wrapMode: TextEdit.Wrap
-
-                background: Rectangle {
-                    radius: 8
-                    color: "white"
-                    //border.color: "black"
+                    color: fileButtonHover.hovered && fileButton.enabled ? "#F2F3F5" : "#FFFFFF"
+                    //border.color: "#DCDCDC"
                     //border.width: 1
-                }
 
-                //一个处理回车事件的函数
-                // enter or send(press send Button) --> 发送
-                // ctrl + enter--> 换行
-                Keys.onPressed: function(event) {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
 
-                    //没有按按钮且没有回车
-                    if (!(event.key === Qt.Key_Return || event.key === Qt.Key_Enter))
-                        return
-
-                    //ctrl + enter : 换行
-                    if ((event.modifiers & Qt.ControlModifier) !== 0)
-                    {
-                        inputArea.insert(inputArea.cursorPosition, "\n")
-                        event.accepted = true
-                        return
+                    Image {
+                        source: "source/file.svg"
+                        width: 30
+                        height: 30
+                        anchors.centerIn: parent
+                        fillMode: Image.PreserveAspectFit
                     }
 
-                    //enter or send
-                    root.trySendMessage()
-                    event.accepted = true
+                    HoverHandler {
+                        id: fileButtonHover
+                        cursorShape: fileButton.enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
+                    }
 
+                    TapHandler {
+                        enabled: fileButton.enabled
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                        onTapped: {
+                            fileDialog.open()
+                        }
+                    }
                 }
             }
+
+           Item {
+               id: inputAreaBox
+
+               Layout.fillWidth: true
+               Layout.fillHeight: true
+
+               ScrollView {
+                   id: inputScrollView
+
+                   anchors.fill: parent
+                   anchors.leftMargin: 15
+                   anchors.rightMargin: 10
+                   anchors.topMargin: 2
+                   anchors.bottomMargin: 2
+
+                   clip: true
+
+                   ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                   ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                   TextArea {
+                       id: inputArea
+
+                       placeholderText: qsTr("请输入消息......")
+                       font.pixelSize: 14
+                       wrapMode: TextEdit.Wrap
+
+                       background: Rectangle {
+                           radius: 8
+                           color: "white"
+                           //border.color: "black"
+                           //border.width: 1
+                       }
+
+                       //一个处理回车事件的函数
+                       // enter or send(press send Button) --> 发送
+                       // ctrl + enter--> 换行
+                       Keys.onPressed: function(event) {
+
+                           //没有按按钮且没有回车
+                           if (!(event.key === Qt.Key_Return || event.key === Qt.Key_Enter))
+                               return
+
+                           //ctrl + enter : 换行
+                           if ((event.modifiers & Qt.ControlModifier) !== 0)
+                           {
+                               inputArea.insert(inputArea.cursorPosition, "\n")
+                               event.accepted = true
+                               return
+                           }
+
+                           //enter or send
+                           root.trySendMessage()
+                           event.accepted = true
+
+                       }
+                   }
+               }
+           }
+
+        Item {
+            id: bottomBar
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: 40
+
+            //发送信息按钮
+            Rectangle {
+                id: sendButton
+
+                width: 60
+                height: 30
+                radius: 10
+
+                //当前是否允许发送
+                property bool canSend: root.currentPeerId !== "" && inputArea.text.trim().length > 0
+
+                color: !canSend
+                        ? "#C9CDD4"     //不能发送：灰色
+                        : sendTap.pressed ? "#9AA4AF" //按下瞬间：变灰
+                                          : sendButtonHover.hovered ? "#0E9FE6" //鼠标悬停：深蓝
+                                                                    : "#12B7F5" //默认可发送：浅蓝
+
+               anchors.right: parent.right
+               anchors.rightMargin: 15
+               anchors.verticalCenter: parent.verticalCenter
+
+                Text {
+                    text: qsTr("发送")
+                    color: "#FFFFFF"
+                    font.pixelSize: 14
+                    font.bold: true
+                    anchors.centerIn: parent
+                }
+
+                TapHandler {
+                    id: sendTap
+
+                    enabled: sendButton.canSend
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                    onTapped: {
+                        root.trySendMessage()
+                    }
+                }
+
+                HoverHandler{
+                    id :sendButtonHover
+
+                    //改变悬停鼠标样式
+                    cursorShape: sendButton.canSend ? Qt.PointingHandCursor : Qt.ForbiddenCursor
+                }
+            }
+
         }
 
-        //发送信息按钮
-        Rectangle {
-            id: sendButton
-
-            width: 60
-            height: 30
-            radius: 10
-
-            //当前是否允许发送
-            property bool canSend: root.currentPeerId !== "" && inputArea.text.trim().length > 0
-
-            color: !canSend
-                    ? "#C9CDD4"     //不能发送：灰色
-                    : sendTap.pressed ? "#9AA4AF" //按下瞬间：变灰
-                                      : sendButtonHover.hovered ? "#0E9FE6" //鼠标悬停：深蓝
-                                                                : "#12B7F5" //默认可发送：浅蓝
-
-            anchors.right: parent.right
-            anchors.rightMargin: 15
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 10
-
-            Text {
-                text: qsTr("发送")
-                color: "#FFFFFF"
-                font.pixelSize: 14
-                font.bold: true
-                anchors.centerIn: parent
-            }
-
-            TapHandler {
-                id: sendTap
-
-                enabled: sendButton.canSend
-                gesturePolicy: TapHandler.ReleaseWithinBounds
-
-                onTapped: {
-                    root.trySendMessage()
-                }
-            }
-
-            HoverHandler{
-                id :sendButtonHover
-
-                //改变悬停鼠标样式
-                cursorShape: sendButton.canSend ? Qt.PointingHandCursor : Qt.ForbiddenCursor
-            }
         }
     }
 }

@@ -9,9 +9,12 @@
 //         * 添加左侧用户列表。
 //     [v0.1.3]  JiangFan       2026-06-06 22:31:45
 //         * 实现搜索框搜索功能
+//     [v0.1.3]  JiangFan       2026-06-21
+//         * 重构：使用Layout管理主窗口结构
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 Window {
     id: inviteUserInterface
@@ -88,199 +91,240 @@ Window {
         anchors.fill: parent
         color: "white"
 
-        Text {
-            text: "邀请窗口"
-            anchors.centerIn: parent
-            font.pointSize: 16
-        }
+        RowLayout {
+            id: mainLayout
 
-        //确定按钮
-        Rectangle{
-            id: okButton
-            anchors.bottom: parent.bottom
-            anchors.right: parent.right
-            anchors.rightMargin: 20
-            anchors.bottomMargin: 20
-            width: 60;  height: 30;  radius: 10;
-            //根据是否选择用户和悬停状态改变颜色
-            color: {
-            if (!inviteUserInterface.userSelected) {
-                return "#e0e0e0"  //禁用状态的颜色
-            } else {
-                return okButtonHover.hovered ? "#00ffff" : "#87cefa"
+            anchors.fill: parent
+            spacing: 0
+
+            ColumnLayout {
+                id: leftArea
+
+                Layout.fillHeight: true
+                Layout.preferredWidth: 80
+                spacing: 10
+
+                //搜索框
+                TextField {
+                    id: searchField
+
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 30
+                    Layout.topMargin: 10
+                    Layout.leftMargin: 10
+                    Layout.rightMargin: 10
+
+
+                    placeholderText: "搜索用户..."
+
+                    background: Rectangle {
+                        id: searchBackGround
+                        radius: 10
+                        color: "#ffffff"
+                        border.color: searchField.activeFocus ? "#a6ceec" : "#e0e0e0"
+                    }
+
+                    //监控文本变化
+                    onTextChanged: {
+                        inviteUserInterface.searchKeyword = text.trim()
+                    }
+                }
+
+                //左侧用户列表
+                Rectangle{
+                    id:leftInvateUser
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    color: "white"
+                    // 右边的分割线
+                    Rectangle {
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 1  //分割线宽度
+                        color: "#e0e0e0"  //分割线颜色
+                        opacity: 0.3
+                    }
+
+
+                    ListView{
+                        id: userListView
+                        anchors.fill: parent
+                        anchors.margins: 5
+                        clip: true
+                        model: testPeerModel
+
+                        delegate: Rectangle {
+                            width: ListView.view.width - 20  //减去左右边距
+                            radius: 10
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            color: isIn.hovered ? "#d3d3d3" : "white"
+                            border.color: "#e0e0e0"
+                            border.width: 1
+
+                            //当前用户是否匹配搜索关键字
+                            property bool matched: inviteUserInterface.matchSearch(model.username, model.ip)
+
+                            //不匹配-->隐藏
+                            height: matched ? 45 : 0
+                            visible: matched
+                            enabled: matched
+
+
+                            //用户前面的圆圈（表示是否已经被选择)
+                            Rectangle{
+                                width: 20;  height: 20;  radius: 20
+                                anchors.left: parent.left
+                                anchors.leftMargin: 5
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: model.selected ? "blue" : "white"
+                                border{
+                                    width: 1; color: "#eae8e8"
+                                }
+                            }
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: model.username
+                                font.pointSize: 12
+                                color: "#333333"
+                            }
+
+                            HoverHandler{
+                                id: isIn
+                            }
+
+                            TapHandler{
+                                id: isSelected
+                                onTapped: {
+                                    inviteUserInterface.setUserSelected(index, !model.selected)
+                                }
+
+                            }
+                        }
+
+                        ScrollBar.vertical: ScrollBar {
+                            anchors.right: parent.right
+                            width: 6
+                            policy: ScrollBar.AsNeeded
+
+                            contentItem: Rectangle {
+                                implicitWidth: 4
+                                radius: 2
+                                color: "#cccccc"
+                            }
+                        }
+                    }
                 }
             }
 
-            //透明度变化表示禁用状态
-            opacity: inviteUserInterface.userSelected ? 1.0 : 0.6
+            ColumnLayout {
+                id: rightArea
 
-            Text{
-                anchors.centerIn: parent
-                text: "确定"
-                color: inviteUserInterface.userSelected ? "blue" : "#999999"
-            }
+                Layout.fillHeight: true
+                Layout.fillWidth: true
+                spacing: 0
 
-            HoverHandler {
-                id: okButtonHover
-            //根据是否选择用户改变鼠标形状
-                cursorShape: inviteUserInterface.userSelected ? Qt.PointingHandCursor : Qt.ForbiddenCursor
-            }
+                //已选中用户区域
+                Rectangle {
+                    id: selectedArea
 
-        }
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
 
-        //取消按钮
-        Rectangle{
-            id: cancelButton
-            anchors.bottom: parent.bottom
-            anchors.right: okButton.left
-            anchors.rightMargin: 20
-            anchors.bottomMargin: 20
-            width: 60;  height: 30;  radius: 10;
-            color: cancelButtonHover.hovered ? "#d3d3d3" : "white"
-            border.color: "#d3d3d3";  border.width: 1
-            Text{
-                anchors.centerIn: parent
-                text: "取消"
-                color: "black"
-            }
-
-            TapHandler{
-                onTapped: inviteUserInterface.close()
-            }
-
-            HoverHandler {
-                id: cancelButtonHover
-            }
-        }
-
-        //搜索框
-        TextField {
-            id: searchField
-            anchors.top: parent.top
-            anchors.topMargin: 20
-            anchors.left: parent.left
-            anchors.right: leftInvateUser.right
-            anchors.margins: 10
-            height: 30
-            placeholderText: "搜索用户..."
-
-            background: Rectangle {
-                id: searchBackGround
-                radius: 5
-                color: "#ffffff"
-                border.color: searchField.activeFocus ? "#a6ceec" : "#e0e0e0"
-            }
-
-            //监控文本变化
-            onTextChanged: {
-                inviteUserInterface.searchKeyword = text.trim()
-            }
-        }
-
-
-        //左侧用户列表
-        Rectangle{
-            id:leftInvateUser
-            width: 200
-            color: "white"
-            anchors.bottom: parent.bottom
-            anchors.top: searchField.bottom
-            anchors.topMargin: 10
-            // 右边的分割线
-            Rectangle {
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: 1  //分割线宽度
-                color: "#e0e0e0"  //分割线颜色
-                opacity: 0.3
-            }
-
-
-            ListView{
-                id: userListView
-                anchors.fill: parent
-                anchors.margins: 5
-                clip: true
-                model: testPeerModel
-
-                delegate: Rectangle {
-                    width: ListView.view.width - 20  //减去左右边距
-                    radius: 10
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    color: isIn.hovered ? "#d3d3d3" : "white"
-                    border.color: "#e0e0e0"
-                    border.width: 1
-
-                    //当前用户是否匹配搜索关键字
-                    property bool matched: inviteUserInterface.matchSearch(model.username, model.ip)
-
-                    //不匹配-->隐藏
-                    height: matched ? 45 : 0
-                    visible: matched
-                    enabled: matched
-
-
-                    //用户前面的圆圈（表示是否已经被选择)
-                    Rectangle{
-                        width: 20;  height: 20;  radius: 20
-                        anchors.left: parent.left
-                        anchors.leftMargin: 5
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: model.selected ? "blue" : "white"
-                        border{
-                            width: 1; color: "#eae8e8"
-                        }
-                    }
+                    color: "white"
 
                     Text {
-                        anchors.centerIn: parent
-                        text: model.username
-                        font.pointSize: 12
-                        color: "#333333"
+                        id: createText
+
+                        text: qsTr("创建群聊")
+                        color: "black"
+                        font.pixelSize: 20
+
+                        anchors.left: parent.left
+                        anchors.leftMargin: 20
+                        anchors.top: parent.top
+                        anchors.topMargin: 20
+                    }
+                }
+
+                RowLayout {
+                    id: buttonBar
+
+                    Layout.preferredHeight: 60
+                    Layout.fillWidth: true
+                    spacing: 5
+
+                    //占位符的作用
+                    Item {
+                        Layout.fillWidth: true
                     }
 
-                    HoverHandler{
-                        id: isIn
-                    }
+                    //确定按钮
+                    Rectangle{
+                        id: okButton
 
-                    TapHandler{
-                        id: isSelected
-                        onTapped: {
-                            inviteUserInterface.setUserSelected(index, !model.selected)
+                        Layout.preferredHeight: 30
+                        Layout.preferredWidth: 60
+                        Layout.rightMargin: 10
+
+                        radius: 10;
+
+                        //根据是否选择用户和悬停状态改变颜色
+                        color: {
+                        if (!inviteUserInterface.userSelected) {
+                            return "#e0e0e0"  //禁用状态的颜色
+                        } else {
+                            return okButtonHover.hovered ? "#00ffff" : "#87cefa"
+                            }
+                        }
+
+                        //透明度变化表示禁用状态
+                        opacity: inviteUserInterface.userSelected ? 1.0 : 0.6
+
+                        Text{
+                            anchors.centerIn: parent
+                            text: "确定"
+                            color: inviteUserInterface.userSelected ? "blue" : "#999999"
+                        }
+
+                        HoverHandler {
+                            id: okButtonHover
+                        //根据是否选择用户改变鼠标形状
+                            cursorShape: inviteUserInterface.userSelected ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                         }
 
                     }
-                }
 
-                ScrollBar.vertical: ScrollBar {
-                    anchors.right: parent.right
-                    width: 6
-                    policy: ScrollBar.AsNeeded
+                    //取消按钮
+                    Rectangle{
+                        id: cancelButton
 
-                    contentItem: Rectangle {
-                        implicitWidth: 4
-                        radius: 2
-                        color: "#cccccc"
+                        Layout.preferredHeight: 30
+                        Layout.preferredWidth: 60
+                        Layout.rightMargin: 5  //右边不抵住边缘
+
+                        radius: 10
+                        color: cancelButtonHover.hovered ? "#d3d3d3" : "white"
+                        border.color: "#d3d3d3";  border.width: 1
+
+                        Text{
+                            anchors.centerIn: parent
+                            text: "取消"
+                            color: "black"
+                        }
+
+                        TapHandler{
+                            onTapped: inviteUserInterface.close()
+                        }
+
+                        HoverHandler {
+                            id: cancelButtonHover
+                        }
                     }
                 }
-            }
-        }
-
-        //右侧已经选择的用户
-        Rectangle{
-            anchors.left: leftInvateUser.right
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.bottom: okButton.top
-            anchors.bottomMargin: 10
-
-            Text {
-                id: crateGroup
-                text: qsTr("创建群聊")
-                color: "black"
-                anchors.left:searchField.right
-                anchors.leftMargin: 5
             }
         }
     }
