@@ -16,7 +16,6 @@
 //         * 修改读取历史记录逻辑，修改messages表建立的索引
 //     [v0.1.9] HeZhiyuan    2026-06-13 13:18:48
 //         * 修改构造函数
-//           修复open()未使用m_connectionName的问题
 //           新增：析构函数、增加在线用户事务同步功能
 //           修改：用户列表调整为在线优先、用户名排序
 //     [v0.1.10] HeZhiyuan    2026-06-14 15:57:04
@@ -38,24 +37,17 @@
 #include <QUuid>
 
 //为当前DatabaseManager生成唯一连接名，QSqlDatabase的连接由全局连接池按名称管理，使用UUID防止多个对象意外共用或覆盖同一连接
-DatabaseManager::DatabaseManager(QObject *parent)
-    : QObject(parent), m_connectionName(QStringLiteral("messager_connection_") +
-                       QUuid::createUuid().toString(QUuid::WithoutBraces))
+DatabaseManager::DatabaseManager(QObject *parent): QObject(parent)
 {}
 
 //关闭数据库连接并将其从Qt SQL全局连接池中移除
 DatabaseManager::~DatabaseManager()
 {
-    const QString connectionName = m_db.connectionName();
-
     if (m_db.isValid()) {m_db.close();}
 
     //必须先清空当前QSqlDatabase句柄
     //再从Qt的连接池中删除连接
     m_db = QSqlDatabase();
-
-    // 从Qt SQL的全局连接池中移除当前连接
-    if (!connectionName.isEmpty()) {QSqlDatabase::removeDatabase(connectionName);}
 }
 
 //打开 SQLite 数据库文件
@@ -84,7 +76,7 @@ bool DatabaseManager::open()
     m_databasePath = dataDir + "/messager.db";
 
     //使用构造函数生成的唯一名称，在Qt SQL连接池中创建连接
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
+    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"));
     m_db.setDatabaseName(m_databasePath);
 
     //打开数据库文件；失败时保存驱动返回的错误信息
