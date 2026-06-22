@@ -124,8 +124,8 @@ Item {
 
                     Image {
                         source: "source/file.svg"
-                        width: 30
-                        height: 30
+                        width: 20
+                        height: 20
                         anchors.centerIn: parent
                         fillMode: Image.PreserveAspectFit
                     }
