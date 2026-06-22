@@ -20,6 +20,8 @@
 //     [v0.1.6] HeZhiyuan    2026-06-19 12:22:31
 //         * 修改初始化函数：在初始化数据库成功后，网络服务启动前加入本机peerId初始化
 //           并将peerId设置到网络层，避免每次运行都会给本机生成一个全新的id
+//     [v0.1.7] ZhouChengWei    2026-06-22 10:46:32
+//         * 把原来的按照IP发送消息改为ID,判断自己发送的消息也改为ID判断
 #include "appcontroller.h"
 
 #include <QVariantMap>
@@ -227,7 +229,7 @@ void AppController::sendMessage(const QString &peerId,
     }
 
     //如果目标是自己，直接本地保存，不经过网络
-    if (normalizedIp == m_privateChat.localIp()) {
+    if (normalizedPeerId == m_privateChat.localId()) {
         if (!m_database.saveMessage(normalizedPeerId, true, normalizedContent)) {
             reportError(QStringLiteral("保存消息失败：") + m_database.lastError());
             return;
@@ -239,7 +241,7 @@ void AppController::sendMessage(const QString &peerId,
     }
 
     //当前网络接口是异步发送，调用返回表示消息已交给发送线程，暂时不代表对方一定已经收到。
-    m_privateChat.sendMessageToUser(normalizedIp, normalizedContent);
+    m_privateChat.sendMessageToUser(normalizedPeerId, normalizedContent);
 
     //网络发送请求提交后保存本地历史记录
     if (!m_database.saveMessage(normalizedPeerId, true, normalizedContent)) {
