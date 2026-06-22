@@ -186,7 +186,6 @@ Rectangle {
                         }
                     }
 
-
                     //创建群聊/添加好友等功能的菜单
                     Menu{
                         id: featureSet
@@ -480,6 +479,15 @@ Rectangle {
         onClosed: {
             peerPanel.pendingDeletePeerId = ""
             peerPanel.pendingDeletePeerName = ""
+        }
+    }
+
+    DragHandler{
+        target: null
+
+        onActiveChanged: {
+            if (active)
+               root.startSystemMove()
         }
     }
 }

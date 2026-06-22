@@ -31,6 +31,9 @@
 //         * 添加了接受文件时显示对方名字
 //     [v0.1.9] JiangFan    2026-06-22
 //         * 增加顶部的、自己的菜单栏
+//     [v0.2.0] JiangFan    2026-06-22
+//         * 对整个窗口添加拖拽、放大、缩小，拉伸等功能，增加登录界面，可以一开始自定义名字
+//
 
 import QtQuick
 import QtQuick.Controls
@@ -47,8 +50,11 @@ ApplicationWindow {
    minimumHeight: 500
 
    visible: true
+
    title: "Messager 信使"
    flags: Qt.Window | Qt.FramelessWindowHint //隐藏顶部默认菜单栏，但是需要自己实现窗口缩放（暂时还没有实现）
+
+   property bool isLogin: false //登录状态
 
    //自己的信息
    property string myName: ""
@@ -71,11 +77,7 @@ ApplicationWindow {
    //C++应用控制器：负责数据库、用户发现和消息收发，QML只处理界面状态
    AppController {
        id: appController
-       Component.onCompleted: {
-           myName = "zcw"
-           appController.initialize(myName)
-           myIp = appController.localIp()
-       }
+
        //删除成功后，再清理QML的当前用户状态。
        onPeerDeleted: function(peerId) {
            if (root.currentPeerId !== peerId)
@@ -203,10 +205,116 @@ ApplicationWindow {
          root.showMaximized()
    }
 
+   //登录函数
+   function login() {
+       var userName = loginNameField.text.trim()
+
+       if(userName.length === 0){
+           loginErrorText.text = qsTr("用户名不能为空！")
+           return
+       }
+
+       if(!appController.initialize(userName)){
+           loginErrorText.text = qsTr("登录失败！")
+           console.log("登录失败！")
+           return
+       }
+
+       root.myName = userName
+       root.isLogin = true
+       root.myIp = appController.localIp()
+       loginWindow.close()
+
+       console.log("登录成功！用户名： ", userName)
+   }
+
+   //登录弹窗
+   Window {
+      id: loginWindow
+
+      width: 250
+      height: 200
+      visible: !isLogin
+
+      title: qsTr("登录")
+      color: "white"
+
+      Rectangle {
+         anchors.fill: parent
+         color: "white"
+         border.color: "#DDDDDD"
+         border.width: 1
+
+         ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 20
+            spacing: 10
+
+            Text {
+                text: qsTr("请输入用户名：")
+                font.pixelSize: 15
+                font.bold: true
+                color: "black"
+
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            //用户名输入框
+            TextField {
+                id: loginNameField
+
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+
+                placeholderText: qsTr("用户名")
+
+                onAccepted: {
+                   root.login()
+                }
+            }
+
+            //这个目前无法正常使用
+            // //显示当前ip
+            // Text {
+            //     text: qsTr("当前IP: ") + (root.myIp.length > 0 ? root.myIp : qsTr("未获取到IP"))
+            //     font.pixelSize: 15
+            //     color: "black"
+            // }
+
+            //错误提示（默认不显示）
+            Text {
+                id: loginErrorText
+                text: ""
+                color: "red"
+            }
+
+            //登录按钮
+            Button {
+                text: qsTr("登录")
+
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+
+                onClicked: {
+                    root.login()
+                }
+            }
+         }
+      }
+
+      //关闭登录界面 且 没有登录
+      onClosing: function(close){
+          if(!root.isLogin)
+              Qt.quit()
+      }
+   }
+
    Rectangle {
           id: background
           anchors.fill: parent
           color: "white"
+
+          visible: isLogin
 
           ColumnLayout {
                  id: mainLayout
@@ -258,17 +366,35 @@ ApplicationWindow {
                        }
 
                        Text {
-                          id: personName
-                          text: myName + "  "+ myIp
-                          font.pixelSize: 15
+                          id: myNametext
+                          text: myName
+                          font.pixelSize: 20
                           Layout.leftMargin: 5
-
                        }
 
-                       //占位
+                       Text {
+                          id: myIpText
+                          text: "ip:" + myIp
+                          font.pixelSize: 15
+                          Layout.leftMargin: 10
+                          Layout.topMargin: 5
+                       }
+
+                       //标题栏空白拖拽区域
                        Rectangle {
+                          id: titleDragArea
+
                           Layout.fillHeight: true
                           Layout.fillWidth: true
+
+                          DragHandler{
+                              target: null
+
+                              onActiveChanged: {
+                                  if (active)
+                                     root.startSystemMove()
+                              }
+                          }
                        }
 
                        //功能栏（最小化，最大化，关闭）
@@ -722,4 +848,182 @@ ApplicationWindow {
           }
       }
 
+   //边缘拉伸
+   Item {
+       id: resizeArea
+
+       anchors.fill: parent
+       z:10
+
+       //边缘缩放区域宽度
+       property int edgeWidth: 5
+
+       //左边缘
+       Rectangle {
+          width: resizeArea.edgeWidth
+          anchors.left: parent.left
+          anchors.top: parent.top
+          anchors.bottom: parent.bottom
+
+          HoverHandler {
+             cursorShape: Qt.SizeHorCursor
+          }
+
+          DragHandler {
+              target: null
+              onActiveChanged: {
+                 if (active)
+                     root.startSystemResize(Qt.LeftEdge)
+              }
+          }
+       }
+
+       //右边缘
+       Rectangle {
+           width:resizeArea.edgeWidth
+           anchors.right: parent.right
+           anchors.top: parent.top
+           anchors.bottom: parent.bottom
+
+           HoverHandler {
+              cursorShape: Qt.SizeHorCursor
+           }
+
+           DragHandler {
+               target: null
+               onActiveChanged: {
+                  if (active)
+                      root.startSystemResize(Qt.RightEdge)
+               }
+           }
+       }
+
+       //上边缘
+       Rectangle {
+           height:resizeArea.edgeWidth
+           anchors.left: parent.left
+           anchors.right: parent.right
+           anchors.top: parent.top
+
+           HoverHandler {
+              cursorShape: Qt.SizeVerCursor
+           }
+
+           DragHandler {
+               target: null
+               onActiveChanged: {
+                  if (active)
+                      root.startSystemResize(Qt.TopEdge)
+               }
+           }
+       }
+
+       //下边缘
+       Rectangle {
+           height:resizeArea.edgeWidth
+           anchors.left: parent.left
+           anchors.right: parent.right
+           anchors.bottom: parent.bottom
+
+           HoverHandler {
+              cursorShape: Qt.SizeVerCursor
+           }
+
+           DragHandler {
+               target: null
+               onActiveChanged: {
+                  if (active)
+                      root.startSystemResize(Qt.BottomEdge)
+               }
+           }
+       }
+
+       //左上边缘
+       Rectangle {
+           height:resizeArea.edgeWidth
+           width: resizeArea.edgeWidth
+           z: 2
+
+           anchors.left: parent.left
+           anchors.top: parent.top
+
+           HoverHandler {
+              cursorShape: Qt.SizeFDiagCursor
+           }
+
+           DragHandler {
+               target: null
+               onActiveChanged: {
+                  if (active)
+                      root.startSystemResize(Qt.TopEdge | Qt.LeftEdge)
+               }
+           }
+       }
+
+       //右上边缘
+       Rectangle {
+           height:resizeArea.edgeWidth
+           width: resizeArea.edgeWidth
+           z: 2
+
+           anchors.right: parent.right
+           anchors.top: parent.top
+
+           HoverHandler {
+              cursorShape: Qt.SizeBDiagCursor
+           }
+
+           DragHandler {
+               target: null
+               onActiveChanged: {
+                  if (active)
+                      root.startSystemResize(Qt.TopEdge | Qt.RightEdge)
+               }
+           }
+       }
+
+       //左下边缘
+       Rectangle {
+           height:resizeArea.edgeWidth
+           width: resizeArea.edgeWidth
+           z: 2
+
+           anchors.left: parent.left
+           anchors.bottom: parent.bottom
+
+           HoverHandler {
+              cursorShape: Qt.SizeBDiagCursor
+           }
+
+           DragHandler {
+               target: null
+               onActiveChanged: {
+                  if (active)
+                      root.startSystemResize(Qt.BottomEdge | Qt.LeftEdge)
+               }
+           }
+       }
+
+       //右下边缘
+       Rectangle {
+           height:resizeArea.edgeWidth
+           width: resizeArea.edgeWidth
+           z: 2
+
+           anchors.right: parent.right
+           anchors.bottom: parent.bottom
+
+           HoverHandler {
+              cursorShape: Qt.SizeFDiagCursor
+           }
+
+           DragHandler {
+               target: null
+               onActiveChanged: {
+                  if (active)
+                      root.startSystemResize(Qt.BottomEdge | Qt.RightEdge)
+               }
+           }
+       }
+   }
 }
