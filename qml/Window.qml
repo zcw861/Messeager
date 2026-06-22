@@ -26,6 +26,8 @@
 //         * 增加处理文件传输的弹窗及其功能
 //     [v0.1.7] JiangFan    2026-06-18
 //         * 重构：使用Layout管理主窗口结构
+//     [v0.1.8] JiangFan    2026-06-22
+//         * 增加顶部的、自己的菜单栏
 
 import QtQuick
 import QtQuick.Controls
@@ -36,13 +38,17 @@ import QtQuick.Layouts
 ApplicationWindow {
    id: root
 
-   width: 900
-   height: 600
-   minimumWidth: 810
-   minimumHeight: 540
+   width: 1000
+   height: 700
+   minimumWidth: 800
+   minimumHeight: 500
 
    visible: true
    title: "Messager 信使"
+   //flags: Qt.Window | Qt.FramelessWindowHint //隐藏顶部默认菜单栏，但是需要自己实现窗口缩放（暂时还没有实现）
+
+   //自己的信息
+   property string myName: ""
 
    //当前正在聊天的局域网用户信息
    property string currentPeerId: ""
@@ -63,6 +69,7 @@ ApplicationWindow {
        id: appController
        Component.onCompleted: {
            appController.initialize("lll")
+           myName = "lll" //这一个建议和上一个整合
        }
        //删除成功后，再清理QML的当前用户状态。
        onPeerDeleted: function(peerId) {
@@ -156,349 +163,532 @@ ApplicationWindow {
       console.log("请求发送文件给:", root.currentPeerName, root.currentPeerIp, fileUrl)
    }
 
+   //窗口缩放函数
+   function toggleMaxinized()
+   {
+      if(root.visibility === Window.Maximized)
+         root.showNormal()
+      else
+         root.showMaximized()
+   }
+
    Rectangle {
-       id: background
-       anchors.fill: parent
-       color: "white"
+          id: background
+          anchors.fill: parent
+          color: "white"
 
-       RowLayout {
-           id: mainLayout
+          ColumnLayout {
+                 id: mainLayout
 
-           anchors.fill:parent
-           spacing: 0
+                 anchors.fill: parent
+                 spacing: 0
 
-           PeerPanel {
-               id: peerPanel
+                 //顶部个人栏
+                 Rectangle {
 
-               Layout.preferredWidth: 200
-               Layout.fillHeight: true
+                    border.color: "#e5e5e5"
+                    border.width: 1
 
-               //Window.qml当前选中的用户id传给PeerPanel，用于左侧高亮
-               currentPeerId: root.currentPeerId
-               //用户列表数据直接来自AppController的peer属性
-               peerModel: appController.peers
+                    Layout.preferredHeight: 40
+                    //Layout.height: 30
+                    Layout.minimumHeight: 40
+                    Layout.maximumHeight: 40
+                    Layout.fillWidth: true
 
-               //     [v0.1.2] HeZhiyuan    2026-06-03 16:37:40
-               //         * 用户点击左侧列表项后，这里会被调用
-               //并通知AppController从数据库读取该用户的历史消息
-               onPeerSelected: function(peerId, username, ip) {
-                   //切换到另一个用户时，先清空当前前端消息
-                   if (root.currentPeerId !== peerId){
-                       inputPanel.clear()
-                   }
-                   //保存当前会话所需的用户信息
-                   root.currentPeerId = peerId
-                   root.currentPeerName = username
-                   root.currentPeerIp = ip
-                   //通知控制器读取该用户的历史消息。
-                   appController.selectPeer(peerId)
-                   console.log("Main.qml 当前聊天对象:", peerId, username, ip)
-               }
+                    RowLayout {
+                       id: personLayout
 
-               //     [v0.1.2] HeZhiyuan    2026-06-04 20:47:45
-               //         * 再次点击当前用户会关闭聊天窗口
-               onPeerClosed: {
-                   root.currentPeerId = ""
-                   root.currentPeerName = ""
-                   root.currentPeerIp = ""
+                       anchors.fill: parent
 
-                   //关闭聊天窗口时清空前端消息
-                   inputPanel.clear()
-                   //清除控制器当前聊天对象和前端消息属性。
-                   appController.clearConversation()
-                   console.log("Main.qml 已回到初始界面")
-               }
+                       spacing: 0
 
-               onPeerDeleteRequested: function(peerId) {
-                   appController.deletePeer(peerId)
-               }
+                       Rectangle {
+                          id: headPortrait
 
-               //接收PeerPanel发送的  搜索框改变  的信号
-               onSearchTextChanged: function(keyword) {
-                   //待改
-                   console.log("搜索用户", keyword)
-               }
-           }
+                          Layout.preferredHeight: 25
+                          Layout.preferredWidth: 25
+                          Layout.leftMargin: 5
+                          color: "white"
 
-           Rectangle {
-               id: rightPanel
+                          //圆框好像有点丑
+                          //radius: 100
+                          //border.color: "black"
+                          //border.width: 1
 
-               Layout.fillWidth: true
-               Layout.fillHeight: true
+                          //头像
+                          Image {
+                             source: "source/headPortrait.svg"
 
-               color: "#FFFFFF"
+                             width: 20
+                             height: 20
 
-               ColumnLayout {
-                   id: rightLayout
-
-                   anchors.fill: parent
-                   spacing: 0
-
-                   Item {
-                      id: rightArea
-
-                      Layout.fillHeight: true
-                      Layout.fillWidth: true
-
-                      //没有选择用户时显示提示区域
-                      Rectangle {
-                          id: emptyPanel
-
-                          anchors.fill: parent
-
-                          color: "#FAFAFA"
-                          visible: root.currentPeerId === ""
-
-                          Text {
-                              text: qsTr("点击左侧用户开始聊天")
-                              font.pixelSize: 16
-                              color: "#999999"
-                              anchors.centerIn: parent
+                             anchors.centerIn: parent
                           }
-                      }
-
-                      //右侧聊天窗口：点击左侧用户后才显示
-                      ChatPanel {
-                          id: chatPanel
-
-                          anchors.fill: parent
-
-                          visible: root.currentPeerId !== ""
-
-                          currentPeerId: root.currentPeerId
-                          currentPeerName: root.currentPeerName
-
-                          //把窗口中的消息模型传给聊天显示区
-                          messageModel: appController.messages
-                          color: "#FFFFFF"
-                      }
-                   }
-
-                   //底部输入框：点击左侧用户后才显示
-                   InputPanel {
-                       id: inputPanel
-
-                       Layout.fillWidth: true
-                       Layout.preferredHeight: 200
-
-                       visible: root.currentPeerId !== ""
-
-                       currentPeerId: root.currentPeerId
-
-                       onSendRequested: function(content) {
-                           root.trySendMessage(content)
                        }
 
-                       //处理文件按钮的点击
-                       onFileSendRequested: function(fileUrl) {
-                           root.trySendFile(fileUrl)
+                       Text {
+                          id: personName
+                          text: myName
+                          font.pixelSize: 15
+                          Layout.leftMargin: 5
+
                        }
-                   }
-               }
-           }
-       }
 
-       //全局焦点处理：点击搜索框以外的位置
-       TapHandler {
-           id: focus
+                       //占位
+                       Rectangle {
+                          Layout.fillHeight: true
+                          Layout.fillWidth: true
+                       }
 
-           gesturePolicy: TapHandler.DragThreshold
+                       //功能栏（最小化，最大化，关闭）
+                       //最小化
+                       Rectangle{
+                          id: smallerButton
 
-           onTapped: function(eventPoint)
-           {
-                      if (!peerPanel.isInSearchField(background, eventPoint.position.x, eventPoint.position.y))
-                      {
-                                 peerPanel.clearSearchFocus()
-                      }
-           }
-       }
+                          Layout.fillHeight: true
+                          Layout.preferredWidth: 30
+                          Layout.rightMargin: 5
 
-       //接收文件时选择保存路径
-       FileDialog {
-           id: saveFileDialog
+                          color: smallerButtonHover.hovered ? "#F2F3F5" : "#FFFFFF"
 
-           title: qsTr("选择文件保存位置")
-           fileMode: FileDialog.SaveFile
+                          Image {
+                             source: "source/smaller.svg"
 
-           //默认打开 /root 目录，并预填收到的文件名。
-           //SaveFile需要“完整文件路径”
-           currentFolder: "file:///root"
+                             width: 20
+                             height: 20
+                             anchors.centerIn: parent
+                          }
 
-           nameFilters: [qsTr("所有文件 (*)")]
-           acceptLabel: qsTr("保存")
+                          HoverHandler {
+                             id: smallerButtonHover
+                             cursorShape: Qt.PointingHandCursor
+                          }
 
-           onAccepted: {
-               var saveUrl = selectedFile
+                          TapHandler {
 
-               if (saveUrl.toString().length === 0) {
-                   console.log("保存路径为空")
-                   root.fileTransferStatusText = qsTr("保存路径为空")
-                   return
-               }
+                             onTapped: {
+                                root.showMinimized()
+                             }
+                          }
+                       }
 
-               if (saveUrl.toString().endsWith("/")) {
-                   console.log("请选择具体文件名，不能只选择文件夹")
-                   root.fileTransferStatusText = qsTr("请选择具体文件名，不能只选择文件夹")
-                   return
-               }
+                       //最大化
+                       Rectangle{
+                          id: biggerButton
 
-               appController.acceptFile(root.pendingFileIp, saveUrl)
+                          Layout.fillHeight: true
+                          Layout.preferredWidth: 30
+                          Layout.rightMargin: 5
 
-               receiveFilePanel.visible = false
-               root.fileTransferStatusText = qsTr("已接受文件，等待传输")
+                          color: biggerButtonHover.hovered ? "#F2F3F5" : "#FFFFFF"
 
-               console.log("接受文件:", root.pendingFileName, "保存到:", saveUrl)
-           }
-       }
+                          Image {
+                             source: "source/bigger.svg"
 
-       //文件接受提示面板
-       Rectangle {
-           id: receiveFilePanel
+                             visible: root.visibility !== Window.Maximized
+                             width: 20
+                             height: 20
+                             anchors.centerIn: parent
+                          }
 
-           width: 300
-           height: 150
-           radius: 10
-           visible: false
-           color: "#FFFFFF"
-           border.color: "#D0D0D0"
-           border.width: 1
-           z: 10
+                          Image {
+                             source: "source/bigger2.svg"
 
-           anchors.centerIn: parent
+                             visible: root.visibility === Window.Maximized
+                             width: 20
+                             height: 20
+                             anchors.centerIn: parent
+                          }
 
-           Text {
-              id: receiveTitle
+                          HoverHandler {
+                             id: biggerButtonHover
+                             cursorShape: Qt.PointingHandCursor
 
-              text: qsTr("收到文件")
-              font.pixelSize: 10
-              font.bold: true
-              color: "black"
+                          }
 
-              anchors.left: parent.left
-              anchors.leftMargin: 20
-              anchors.top: parent.top
-              anchors.topMargin: 20
-           }
+                          TapHandler {
+                             onTapped: {
+                                root.toggleMaxinized()
+                             }
+                          }
+                       }
 
+                       //关闭
+                       Rectangle{
+                          id: closeButton
 
-           Text {
-              id: receiveInfo
+                          Layout.fillHeight: true
+                          Layout.preferredWidth: 30
+                          Layout.rightMargin: 5
 
-              text: root.pendingFileName
-                      + "\n大小：" + root.pendingFileSize + " 字节"
-                      + "\n来自：" + root.pendingFileIp
-              font.pixelSize: 15
-              color: "#4E5969"
-              wrapMode: Text.Wrap
+                          color: closeButtonHover.hovered ? "#e60a0a" : "#FFFFFF"
 
-              anchors.left: receiveTitle.left
-              anchors.right: parent.right
-              anchors.rightMargin: 20
-              anchors.top: receiveTitle.bottom
-              anchors.topMargin: 10
-           }
+                          Image {
+                             source: "source/close.svg"
 
-           Text {
-              id: transferStatusText
+                             width: 20
+                             height: 20
+                             anchors.centerIn: parent
+                          }
 
-              text: root.fileTransferStatusText
-              font.pixelSize: 12
-              color: "#86909C"
-              elide: Text.ElideRight
+                          HoverHandler {
+                             id: closeButtonHover
+                             cursorShape: Qt.PointingHandCursor
+                          }
 
-              anchors.left: receiveTitle.left
-              anchors.right: parent.right
-              anchors.rightMargin: 20
-              anchors.top: receiveInfo.bottom
-              anchors.topMargin: 10
+                          TapHandler {
+
+                             onTapped: {
+                                root.close()
+                             }
+                          }
+                       }
+                    }
+                 }
+
+                 RowLayout {
+                     id: activeLayout //凑合叫活动窗口
+
+                     Layout.fillWidth: true
+                     Layout.fillHeight: true
+
+                     spacing: 0
+
+                     PeerPanel {
+                         id: peerPanel
+
+                         Layout.preferredWidth: 200
+                         Layout.fillHeight: true
+
+                         //Window.qml当前选中的用户id传给PeerPanel，用于左侧高亮
+                         currentPeerId: root.currentPeerId
+                         //用户列表数据直接来自AppController的peer属性
+                         peerModel: appController.peers
+
+                         //     [v0.1.2] HeZhiyuan    2026-06-03 16:37:40
+                         //         * 用户点击左侧列表项后，这里会被调用
+                         //并通知AppController从数据库读取该用户的历史消息
+                         onPeerSelected: function(peerId, username, ip) {
+                             //切换到另一个用户时，先清空当前前端消息
+                             if (root.currentPeerId !== peerId){
+                                 inputPanel.clear()
+                             }
+                             //保存当前会话所需的用户信息
+                             root.currentPeerId = peerId
+                             root.currentPeerName = username
+                             root.currentPeerIp = ip
+                             //通知控制器读取该用户的历史消息。
+                             appController.selectPeer(peerId)
+                             console.log("Main.qml 当前聊天对象:", peerId, username, ip)
+                         }
+
+                         //     [v0.1.2] HeZhiyuan    2026-06-04 20:47:45
+                         //         * 再次点击当前用户会关闭聊天窗口
+                         onPeerClosed: {
+                             root.currentPeerId = ""
+                             root.currentPeerName = ""
+                             root.currentPeerIp = ""
+
+                             //关闭聊天窗口时清空前端消息
+                             inputPanel.clear()
+                             //清除控制器当前聊天对象和前端消息属性。
+                             appController.clearConversation()
+                             console.log("Main.qml 已回到初始界面")
+                         }
+
+                         onPeerDeleteRequested: function(peerId) {
+                             appController.deletePeer(peerId)
+                         }
+
+                         //接收PeerPanel发送的  搜索框改变  的信号
+                         onSearchTextChanged: function(keyword) {
+                             //待改
+                             console.log("搜索用户", keyword)
+                         }
                      }
 
+                     Rectangle {
+                         id: rightPanel
 
-           Rectangle {
-              id: rejectFileButton
+                         Layout.fillWidth: true
+                         Layout.fillHeight: true
 
-              width: 70
-              height: 30
+                         color: "#FFFFFF"
+
+                         ColumnLayout {
+                             id: rightLayout
+
+                             anchors.fill: parent
+                             spacing: 0
+
+                             Item {
+                                id: rightArea
+
+                                Layout.fillHeight: true
+                                Layout.fillWidth: true
+
+                                //没有选择用户时显示提示区域
+                                Rectangle {
+                                    id: emptyPanel
+
+                                    anchors.fill: parent
+
+                                    color: "#FAFAFA"
+                                    visible: root.currentPeerId === ""
+
+                                    Text {
+                                        text: qsTr("点击左侧用户开始聊天")
+                                        font.pixelSize: 16
+                                        color: "#999999"
+                                        anchors.centerIn: parent
+                                    }
+                                }
+
+                                //右侧聊天窗口：点击左侧用户后才显示
+                                ChatPanel {
+                                    id: chatPanel
+
+                                    anchors.fill: parent
+
+                                    visible: root.currentPeerId !== ""
+
+                                    currentPeerId: root.currentPeerId
+                                    currentPeerName: root.currentPeerName
+
+                                    //把窗口中的消息模型传给聊天显示区
+                                    messageModel: appController.messages
+                                    color: "#FFFFFF"
+                                }
+                             }
+
+                             //底部输入框：点击左侧用户后才显示
+                             InputPanel {
+                                 id: inputPanel
+
+                                 Layout.fillWidth: true
+                                 Layout.preferredHeight: 200
+
+                                 visible: root.currentPeerId !== ""
+
+                                 currentPeerId: root.currentPeerId
+
+                                 onSendRequested: function(content) {
+                                     root.trySendMessage(content)
+                                 }
+
+                                 //处理文件按钮的点击
+                                 onFileSendRequested: function(fileUrl) {
+                                     root.trySendFile(fileUrl)
+                                 }
+                             }
+                         }
+                     }
+                 }
+          }
+
+
+          //全局焦点处理：点击搜索框以外的位置
+          TapHandler {
+              id: focus
+
+              gesturePolicy: TapHandler.DragThreshold
+
+              onTapped: function(eventPoint)
+              {
+                 if (!peerPanel.isInSearchField(background, eventPoint.position.x, eventPoint.position.y))
+                 {
+                     peerPanel.clearSearchFocus()
+                 }
+              }
+          }
+
+          //接收文件时选择保存路径
+          FileDialog {
+              id: saveFileDialog
+
+              title: qsTr("选择文件保存位置")
+              fileMode: FileDialog.SaveFile
+
+              //默认打开 /root 目录，并预填收到的文件名。
+              //SaveFile需要“完整文件路径”
+              currentFolder: "file:///root"
+
+              nameFilters: [qsTr("所有文件 (*)")]
+              acceptLabel: qsTr("保存")
+
+              onAccepted: {
+                  var saveUrl = selectedFile
+
+                  if (saveUrl.toString().length === 0) {
+                      console.log("保存路径为空")
+                      root.fileTransferStatusText = qsTr("保存路径为空")
+                      return
+                  }
+
+                  if (saveUrl.toString().endsWith("/")) {
+                      console.log("请选择具体文件名，不能只选择文件夹")
+                      root.fileTransferStatusText = qsTr("请选择具体文件名，不能只选择文件夹")
+                      return
+                  }
+
+                  appController.acceptFile(root.pendingFileIp, saveUrl)
+
+                  receiveFilePanel.visible = false
+                  root.fileTransferStatusText = qsTr("已接受文件，等待传输")
+
+                  console.log("接受文件:", root.pendingFileName, "保存到:", saveUrl)
+              }
+          }
+
+          //文件接受提示面板
+          Rectangle {
+              id: receiveFilePanel
+
+              width: 300
+              height: 150
               radius: 10
-              color: rejectFileHover.hovered ? "#F2F3F5" : "#FFFFFF"
+              visible: false
+              color: "#FFFFFF"
               border.color: "#D0D0D0"
               border.width: 1
+              z: 10
 
-              anchors.right: acceptFileButton.left
-              anchors.rightMargin: 10
-              anchors.bottom: parent.bottom
-              anchors.bottomMargin: 20
+              anchors.centerIn: parent
 
               Text {
-                 text: qsTr("拒绝")
-                 color: "#333333"
+                 id: receiveTitle
+
+                 text: qsTr("收到文件")
+                 font.pixelSize: 10
+                 font.bold: true
+                 color: "black"
+
+                 anchors.left: parent.left
+                 anchors.leftMargin: 20
+                 anchors.top: parent.top
+                 anchors.topMargin: 20
+              }
+
+
+              Text {
+                 id: receiveInfo
+
+                 text: root.pendingFileName
+                         + "\n大小：" + root.pendingFileSize + " 字节"
+                         + "\n来自：" + root.pendingFileIp
                  font.pixelSize: 15
-                 anchors.centerIn: parent
+                 color: "#4E5969"
+                 wrapMode: Text.Wrap
+
+                 anchors.left: receiveTitle.left
+                 anchors.right: parent.right
+                 anchors.rightMargin: 20
+                 anchors.top: receiveTitle.bottom
+                 anchors.topMargin: 10
               }
 
-              HoverHandler {
-                 id: rejectFileHover
-                 cursorShape: Qt.PointingHandCursor
-              }
+              Text {
+                 id: transferStatusText
 
-              TapHandler {
-                 acceptedButtons: Qt.LeftButton
-                 gesturePolicy: TapHandler.ReleaseWithinBounds
+                 text: root.fileTransferStatusText
+                 font.pixelSize: 12
+                 color: "#86909C"
+                 elide: Text.ElideRight
 
-                 onTapped: {
-                    appController.rejectFile(root.pendingFileIp)
+                 anchors.left: receiveTitle.left
+                 anchors.right: parent.right
+                 anchors.rightMargin: 20
+                 anchors.top: receiveInfo.bottom
+                 anchors.topMargin: 10
+                        }
 
-                    receiveFilePanel.visible = false
-                    root.fileTransferStatusText = qsTr("已拒绝文件")
 
-                    console.log("拒绝文件:", root.pendingFileName, root.pendingFileIp)
+              Rectangle {
+                 id: rejectFileButton
+
+                 width: 70
+                 height: 30
+                 radius: 10
+                 color: rejectFileHover.hovered ? "#F2F3F5" : "#FFFFFF"
+                 border.color: "#D0D0D0"
+                 border.width: 1
+
+                 anchors.right: acceptFileButton.left
+                 anchors.rightMargin: 10
+                 anchors.bottom: parent.bottom
+                 anchors.bottomMargin: 20
+
+                 Text {
+                    text: qsTr("拒绝")
+                    color: "#333333"
+                    font.pixelSize: 15
+                    anchors.centerIn: parent
                  }
-              }
-           }
 
-           Rectangle {
-              id: acceptFileButton
+                 HoverHandler {
+                    id: rejectFileHover
+                    cursorShape: Qt.PointingHandCursor
+                 }
 
-              width: 70
-              height: 30
-              radius: 10
-              color: acceptFileHover.hovered ? "#0E9FE6" : "#12B7F5"
+                 TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
 
-              anchors.right: parent.right
-              anchors.rightMargin: 20
-              anchors.bottom: parent.bottom
-              anchors.bottomMargin: 15
+                    onTapped: {
+                       appController.rejectFile(root.pendingFileIp)
 
-              Text {
-                 text: qsTr("接收")
-                 color: "#FFFFFF"
-                 font.pixelSize: 15
-                 anchors.centerIn: parent
-              }
+                       receiveFilePanel.visible = false
+                       root.fileTransferStatusText = qsTr("已拒绝文件")
 
-              HoverHandler {
-                 id: acceptFileHover
-                 cursorShape: Qt.PointingHandCursor
-              }
-
-              TapHandler {
-                 acceptedButtons: Qt.LeftButton
-                 gesturePolicy: TapHandler.ReleaseWithinBounds
-
-                 onTapped: {
-                    if (root.pendingFileName.length === 0) {
-                       console.log("待接收文件名为空")
-                               root.fileTransferStatusText = qsTr("待接收文件名为空")
-                               return
+                       console.log("拒绝文件:", root.pendingFileName, root.pendingFileIp)
                     }
-
-                    //打开保存框前，先给它一个默认保存文件名。
-                    //这样用户不用只选目录，而是直接得到 /root/原文件名。
-                    saveFileDialog.selectedFile = "file:///root/" + encodeURIComponent(root.pendingFileName)
-                    saveFileDialog.open()
                  }
               }
-           }
-       }
-   }
+
+              Rectangle {
+                 id: acceptFileButton
+
+                 width: 70
+                 height: 30
+                 radius: 10
+                 color: acceptFileHover.hovered ? "#0E9FE6" : "#12B7F5"
+
+                 anchors.right: parent.right
+                 anchors.rightMargin: 20
+                 anchors.bottom: parent.bottom
+                 anchors.bottomMargin: 15
+
+                 Text {
+                    text: qsTr("接收")
+                    color: "#FFFFFF"
+                    font.pixelSize: 15
+                    anchors.centerIn: parent
+                 }
+
+                 HoverHandler {
+                    id: acceptFileHover
+                    cursorShape: Qt.PointingHandCursor
+                 }
+
+                 TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                    onTapped: {
+                       if (root.pendingFileName.length === 0) {
+                          console.log("待接收文件名为空")
+                                  root.fileTransferStatusText = qsTr("待接收文件名为空")
+                                  return
+                       }
+
+                       //打开保存框前，先给它一个默认保存文件名。
+                       //这样用户不用只选目录，而是直接得到 /root/原文件名。
+                       saveFileDialog.selectedFile = "file:///root/" + encodeURIComponent(root.pendingFileName)
+                       saveFileDialog.open()
+                    }
+                 }
+              }
+          }
+      }
+
 }

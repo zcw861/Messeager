@@ -57,7 +57,7 @@ import QtQuick.Layouts
 //左侧栏
 Rectangle {
     id: peerPanel
-    color: "#D9D9D9"
+    color: "#e8e8e8"
     //color: "#F7F8FA"
 
     //后续交给 PeerModel 或 AppController 处理
@@ -105,112 +105,124 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        //搜索框 + 加号
-        RowLayout {
-            id: searchArea
-
+        Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 50
 
-            spacing: 5
+            color: "white"
 
-            //Search
-            TextField {
-                id: searchField
+            border.color: "#e5e5e5"
+            border.width: 1
 
-                Layout.fillWidth: true
-                Layout.preferredHeight: 30
-                Layout.leftMargin: 10
-                Layout.alignment: Qt.AlignVCenter
+            //搜索框 + 加号
+            RowLayout {
+                id: searchArea
 
-                placeholderText: qsTr("搜索用户")
-                font.pixelSize: 12
+                anchors.fill: parent
 
-                //Search background
-                background: Rectangle {
+                spacing: 5
+
+                //Search
+                TextField {
+                    id: searchField
+
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 30
+                    Layout.leftMargin: 10
+                    Layout.alignment: Qt.AlignVCenter
+
+                    placeholderText: qsTr("搜索用户")
+                    font.pixelSize: 12
+
+                    //Search background
+                    background: Rectangle {
+                        radius: 10
+                        color: "#F2F2F2"
+                        border.color: "#b4b4b4"
+                        border.width: 1
+                    }
+
+                    //当输入内容发生变化时，向外发出信号
+                    onTextChanged: {
+
+                        //记录当前搜索关键字
+                        peerPanel.searchKeyword = text.trim()
+
+                        // 向外传递关键字变化，后续可交给PeerModel / AppController处理
+                        peerPanel.searchTextChanged(peerPanel.searchKeyword)
+                    }
+                }
+
+                //创建群聊按钮
+                Rectangle{
+                    id: createGroupChat
+
+                    Layout.preferredHeight: 30
+                    Layout.preferredWidth: 30
+                    Layout.rightMargin: 10
+                    Layout.alignment: Qt.AlignVCenter
+
                     radius: 10
-                    color: "#F2F2F2"
-                    border.color: "#b4b4b4"
-                    border.width: 1
-                }
+                    color: typeChange.hovered ? "#a9a9a9" : "#f5f5f5"
 
-                //当输入内容发生变化时，向外发出信号
-                onTextChanged: {
-
-                    //记录当前搜索关键字
-                    peerPanel.searchKeyword = text.trim()
-
-                    // 向外传递关键字变化，后续可交给PeerModel / AppController处理
-                    peerPanel.searchTextChanged(peerPanel.searchKeyword)
-                }
-            }
-
-            //创建群聊按钮
-            Rectangle{
-                id: createGroupChat
-
-                Layout.preferredHeight: 30
-                Layout.preferredWidth: 30
-                Layout.rightMargin: 10
-                Layout.alignment: Qt.AlignVCenter
-
-                radius: 10
-                color: typeChange.hovered ? "#a9a9a9" : "#f5f5f5"
-
-                Text{
-                    text: "+"
-                    font.pointSize: 20
-                    color: "#e6e6fa"
-                    anchors.centerIn: parent
-                }
-
-                HoverHandler {
-                    id: typeChange
-                    cursorShape: Qt.PointingHandCursor
-                }
-
-                TapHandler{
-                    onTapped: {
-                        //清除搜索框焦点
-                        peerPanel.clearSearchFocus()
-
-                        featureSet.popup(createGroupChat, 0, createGroupChat.height)
+                    Text{
+                        text: "+"
+                        font.pointSize: 20
+                        color: "#e6e6fa"
+                        anchors.centerIn: parent
                     }
-                }
 
+                    HoverHandler {
+                        id: typeChange
+                        cursorShape: Qt.PointingHandCursor
+                    }
 
-                //创建群聊/添加好友等功能的菜单
-                Menu{
-                    id: featureSet
-                    width: 100
-
-                    MenuItem{
-                        text: qsTr("创建群聊")
-                        /*
-                        TapHandler{
-                            onTapped: inviteUserInterfaceLoader.item.show()
-                        }
-                        */
-                        //MenuItem本身就是可以点击的控件 并自带triggered信号,所以不应该用TapHandler
-                        onTriggered: {
+                    TapHandler{
+                        onTapped: {
+                            //清除搜索框焦点
                             peerPanel.clearSearchFocus()
-                            inviteUserInterfaceLoader.item.show()
-                        }
 
+                            featureSet.popup(createGroupChat, 0, createGroupChat.height)
+                        }
                     }
-                    MenuItem{
-                        text: qsTr("加好友")
+
+
+                    //创建群聊/添加好友等功能的菜单
+                    Menu{
+                        id: featureSet
+                        width: 100
+
+                        MenuItem{
+                            text: qsTr("创建群聊")
+                            /*
+                            TapHandler{
+                                onTapped: inviteUserInterfaceLoader.item.show()
+                            }
+                            */
+                            //MenuItem本身就是可以点击的控件 并自带triggered信号,所以不应该用TapHandler
+                            onTriggered: {
+                                peerPanel.clearSearchFocus()
+                                inviteUserInterfaceLoader.item.show()
+                            }
+
+                        }
+                        MenuItem{
+                            text: qsTr("加好友")
+                        }
                     }
                 }
+
             }
 
         }
+
 
         Text {
             id: peerTitle
 
             Layout.fillWidth: true
             Layout.leftMargin: 10
+            Layout.topMargin: 5
 
             text: qsTr("局域网用户")
             font.pixelSize: 15
