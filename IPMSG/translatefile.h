@@ -21,33 +21,27 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-//文件传输端口
-#define FILE_PORT 45456
 
-//协议控制字节
-#define MSG_TYPE_FILE_REQ  0x01   //文件请求
-#define MSG_TYPE_FILE_ACK  0x02   //接受/拒绝
-#define MSG_TYPE_FILE_DATA 0x03   //文件数据块
-
-//请求
+//文件请求
 struct FileRequest {
     uint8_t type;
     uint32_t nameLen;
     uint64_t fileSize;
 };
 
-//应答
+//文件应答
 struct FileAck {
     uint8_t type;
     uint8_t accept;   //1接受，0拒绝
 };
 
-
+//文件数据头
 struct FileDataHeader {
     uint8_t type;
     uint32_t blockSize;
 };
 
+//等待文件请求
 struct PendingFileRequest {
     int clientFd = -1;
     std::string fileName;
@@ -75,12 +69,12 @@ signals:
     void fileTransferFinished(const QString &ip, const QString &fileName, bool success);
 
 public slots:
-    //QML调用：接受文件
-    Q_INVOKABLE void acceptFile(const QString &ip, const QString &savePath);
-    //QML调用：拒绝文件
-    Q_INVOKABLE void rejectFile(const QString &ip);
-    //QML调用：发送文件
-    Q_INVOKABLE void sendFile(const QString &ip, const QString &filePath);
+    //接受文件
+    void acceptFile(const QString &ip, const QString &savePath);
+    //拒绝文件
+    void rejectFile(const QString &ip);
+    //发送文件
+    void sendFile(const QString &ip, const QString &filePath);
 
 private:
     //文件传输线程

@@ -9,6 +9,7 @@
 //         * 修改了部分代码格式
 
 #include "translatefile.h"
+#include "common.h"
 
 #include <iostream>
 #include <fcntl.h>
@@ -21,8 +22,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
-
-#define BUF_SIZE 8192
 
 TranslateFile::TranslateFile(QObject *parent) : QObject(parent){}
 
@@ -196,7 +195,7 @@ void TranslateFile::handleFileConnection(int clientfd, const sockaddr_in &client
         return;
     }
 
-    if(type == MSG_TYPE_FILE_REQ){
+    if(type == MSG_TYPE_TCP_FILE_REQ){
         //接收文件请求头
         uint32_t nameLen;
         uint64_t fileSize;
@@ -286,7 +285,7 @@ void TranslateFile::acceptFile(const QString &ip, const QString &savePath)
     std::thread([this, clientfd, ipStr, savePathStr, fileName, fileSize](){
         //发送接受应答
         FileAck ack;
-        ack.type = MSG_TYPE_FILE_ACK;
+        ack.type = MSG_TYPE_TCP_FILE_ACK;
         ack.accept = 1;
         send(clientfd, &ack, sizeof(ack), 0);
 
@@ -318,7 +317,7 @@ void TranslateFile::rejectFile(const QString &ip)
 
     //发送拒绝应答
     FileAck ack;
-    ack.type = MSG_TYPE_FILE_ACK;
+    ack.type = MSG_TYPE_TCP_FILE_ACK;
     ack.accept = 0;
     send(clientfd, &ack, sizeof(ack), 0);
     close(clientfd);
@@ -337,7 +336,7 @@ void TranslateFile::receiveFileData(int clientfd, const std::string &ip,
         return;
     }
 
-    char buffer[BUF_SIZE];
+    char buffer[FILE_BUF_SIZE];
     uint64_t totalReceived = 0;
 
     while(true){
@@ -349,7 +348,7 @@ void TranslateFile::receiveFileData(int clientfd, const std::string &ip,
             break;
         }
 
-        if (header.type != MSG_TYPE_FILE_DATA) {
+        if (header.type != MSG_TYPE_TCP_FILE_DATA) {
             std::cerr << "意外消息类型: " << (int)header.type << std::endl;
             break;
         }
@@ -479,7 +478,7 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
     uint32_t nameLen = fileName.size();
     uint64_t fileSize = fileInfo.size();
 
-    uint8_t type = MSG_TYPE_FILE_REQ;
+    uint8_t type = MSG_TYPE_TCP_FILE_REQ;
     uint32_t nameLenNet = htonl(nameLen);
     uint64_t fileSizeNet = htobe64(fileSize);
 
@@ -493,7 +492,7 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
     //等待应答
     FileAck ack;
     int ret = recv(clientfd, &ack, sizeof(ack), MSG_WAITALL);
-    if(ret != sizeof(ack) || ack.type != MSG_TYPE_FILE_ACK || ack.accept != 1){
+    if(ret != sizeof(ack) || ack.type != MSG_TYPE_TCP_FILE_ACK || ack.accept != 1){
         std::cout << "文件被拒绝或应答错误" << std::endl;
         close(clientfd);
         QMetaObject::invokeMethod(this, [this, ip, fileName](){
@@ -516,17 +515,17 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
         return;
     }
 
-    char buffer[BUF_SIZE];
+    char buffer[FILE_BUF_SIZE];
     qint64 totalSent = 0;
     int lastPercent = -1;
 
     while(!file.atEnd()){
-        qint64 bytesRead = file.read(buffer, BUF_SIZE);
+        qint64 bytesRead = file.read(buffer, FILE_BUF_SIZE);
         if (bytesRead <= 0) break;
 
         //发送数据块头
         FileDataHeader header;
-        header.type = MSG_TYPE_FILE_DATA;
+        header.type = MSG_TYPE_TCP_FILE_DATA;
         header.blockSize = htonl(static_cast<uint32_t>(bytesRead));
         send(clientfd, &header, sizeof(header), 0);
 
@@ -553,7 +552,7 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
 
     //发送结束标志
     FileDataHeader endHeader;
-    endHeader.type = MSG_TYPE_FILE_DATA;
+    endHeader.type = MSG_TYPE_TCP_FILE_DATA;
     endHeader.blockSize = 0;  //0表示传输结束
     send(clientfd, &endHeader, sizeof(endHeader), 0);
 

@@ -23,8 +23,7 @@
 //     [v0.2.1] HeZhiyuan    2026-06-18 22:11:02
 //         * 新增：setLocalId()，允许控制层在网络线程启动前设置UUID
 
-#ifndef PRIVATECHAT_H
-#define PRIVATECHAT_H
+#pragma once
 
 #include <QObject>
 #include <QVariantList>
@@ -35,15 +34,8 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
-#include <chrono>
 
-//用户结构体
-struct UserInfo {
-    std::string name;
-    std::string ip;
-    std::chrono::steady_clock::time_point lastSeen; //最后活跃时刻
-    std::string id;     //用户唯一标识ID
-};
+#include "common.h"
 
 class PrivateChat : public QObject
 {
@@ -68,13 +60,13 @@ signals:
     void messageReceived(const QString &fromId, const QString &fromName, const QString &fromIp, const QString &message);   //通知收到消息
 
 private:
-    void broadcastThread(); //广播线程
-    void listenThread();    //监听广播线程
-    void tcpServerThread(); //收发消息线程
-    void cleanOfflineThread(); //清理离线用户线程
+    void broadcastThread();     //广播线程
+    void listenThread();        //监听广播线程
+    void tcpServerThread();     //收发消息线程
+    void cleanOfflineThread();  //清理离线用户线程
 
     //线程安全的信号发射
-    void emitMessageReceived(const std::string &id,const std::string &name, const std::string &ip, const std::string &msg);
+    void emitMessageReceived(const std::string &id, const std::string &name, const std::string &ip, const std::string &msg);
 
     std::unordered_map<std::string, UserInfo> m_peers;  //id与用户的映射
     mutable std::mutex m_mutex; //锁，用于并发时保护m_peers的资源访问
@@ -91,5 +83,3 @@ private:
     int m_udp_listenFd = -1;
     int m_tcp_serverFd = -1;
 };
-
-#endif // PRIVATECHAT_H
