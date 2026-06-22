@@ -154,7 +154,7 @@ void PrivateChat::sendMessageToUser(const QString &id, const QString &msg)
     std::string msgStr = msg.toStdString();
 
     //如果发给自己
-    if (idStr == m_localIp){
+    if (idStr == m_localId){
         //本地接收事件，不经过网络
         QMetaObject::invokeMethod(this, [this, msgStr](){
             emit messageReceived(
