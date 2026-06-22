@@ -14,6 +14,9 @@
 //         *修改数据库层文件路径，将database改为动态库
 //     [v0.1.6] HeZhiyuan    2026-06-14 15:52:32
 //         *新增：删除指定用户
+//     [v0.1.7] HeZhiyuan    2026-06-18 20:11:20
+//         *新增：loadOrCreateLocalPeerId()，负责读取或创建本机永久peerId
+//               normalizePeerId()，负责校验UUID并统一为不带大括号的格式
 #pragma once
 
 #include <QObject>
@@ -45,12 +48,15 @@ public:
     QVariantList loadMessages(const QString &peerId, int limit = 5000);
     //将网络层提供的在线用户列表同步到数据库
     bool synchronizePeers(const QVariantList &onlinePeers);
+    //读取数据库中已经保存的persistentPeerId
+    //如果数据库中还没有本机ID，就保存candidatePeerId；如果数据库中已经有本机ID，则忽略candidatePeerId
+    bool loadOrCreateLocalPeerId(const QString &candidatePeerId, QString &persistentPeerId);
 private:
     bool execSql(const QString &sql);   //执行一条不需要参数绑定的SQL语句
-
+    //将UUID转换成统一的不带大括号格式, 无效UUID返回空字符串
+    static QString normalizePeerId(const QString &peerId);
 private:
     QSqlDatabase m_db;  //SQLite数据库连接句柄
     QString m_databasePath; //数据库文件的完整路径
     QString m_lastError;    //最近一次数据库操作产生的错误信息
-    QString m_connectionName;   //当前对象使用的唯一数据库连接名称,每个DatabaseManager使用不同名称，避免连接相互覆盖
 };

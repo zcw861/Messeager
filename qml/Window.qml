@@ -26,7 +26,10 @@
 //         * 增加处理文件传输的弹窗及其功能
 //     [v0.1.7] JiangFan    2026-06-18
 //         * 重构：使用Layout管理主窗口结构
-//     [v0.1.8] JiangFan    2026-06-22
+//     [v0.1.8] ZhouChengWei    2026-06-22 10.17
+//         * 实现了判断文件大小（B/KB/MB/GB），替代了接收文件时一直显示字节
+//         * 添加了接受文件时显示对方名字
+//     [v0.1.9] JiangFan    2026-06-22
 //         * 增加顶部的、自己的菜单栏
 
 import QtQuick
@@ -49,6 +52,7 @@ ApplicationWindow {
 
    //自己的信息
    property string myName: ""
+   property string myIp: ""
 
    //当前正在聊天的局域网用户信息
    property string currentPeerId: ""
@@ -58,7 +62,7 @@ ApplicationWindow {
    //当前待处理的文件接收请求
    property string pendingFileIp: ""
    property string pendingFileName: ""
-   property int pendingFileSize: 0
+   property double pendingFileSize: 0
 
    //文件传输状态显示
    property int fileTransferPercent: 0
@@ -70,6 +74,8 @@ ApplicationWindow {
        Component.onCompleted: {
            appController.initialize("lll")
            myName = "lll" //这一个建议和上一个整合
+           myIp = "192.168.1.1"
+
        }
        //删除成功后，再清理QML的当前用户状态。
        onPeerDeleted: function(peerId) {
@@ -120,8 +126,34 @@ ApplicationWindow {
        //错误提示
        onOperationFailed: function(message)
        {
-               console.log("操作失败: ", message)
-               root.fileTransferStatusText = message
+              console.log("操作失败: ", message)
+              root.fileTransferStatusText = message
+       }
+   }
+
+   //判断文件大小，用于转换B/KB/MB/GB
+   function fileSizeJudgement(fileSize){
+       var size = 0
+       //B
+       if(fileSize < 1024){
+              size = fileSize
+              return size.toFixed(1) + " B"
+       }
+
+       //KB
+       if(fileSize < 1024 * 1024){
+              size = fileSize / 1024
+              return size.toFixed(1) + " KB"
+       }
+       //MB
+       if(fileSize < 1024 * 1024 * 1024){
+              size = fileSize / (1024 * 1024)
+              return size.toFixed(1) + " MB"
+       }
+       //GB
+       if(fileSize < 1024 * 1024 * 1024 * 1024){
+              size = fileSize / (1024 * 1024 * 1024)
+              return size.toFixed(1) + " GB"
        }
    }
 
@@ -228,7 +260,7 @@ ApplicationWindow {
 
                        Text {
                           id: personName
-                          text: myName
+                          text: myName + "  "+ myIp
                           font.pixelSize: 15
                           Layout.leftMargin: 5
 

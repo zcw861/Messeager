@@ -15,6 +15,10 @@
 //         * 添加了关闭阻塞调用，防止程序重启发送消息时会导致收不到的bug
 //     [v0.1.6]  ZhouChengWei   2026-06-14 21:31:48
 //         * 处理了因为给自己发送消息而接收导致显示2次的问题
+//     [v0.2.0] ZhouChengWei    2026-06-18 17:53:47
+//         * 将逻辑修改为用ID辨别唯一用户
+//     [v0.2.1] HeZhiyuan    2026-06-18 22:22:53
+//         * 新增：setLocalId()，在网络层启动前获取数据库提供的id，禁止网络线程启动后修改
 
 #include "privatechat.h"
 
@@ -27,11 +31,15 @@
 #include <unistd.h>
 #include <netdb.h>
 
-#define UDP_PORT 45454  // UDP端口
-#define TCP_PORT 45455  // TCP端口
-#define BUF_SIZE 1024   // 缓冲区大小
+#define UDP_PORT 45454  //UDP端口
+#define TCP_PORT 45455  //TCP端口
+#define BUF_SIZE 1024   //缓冲区大小
 
-PrivateChat::PrivateChat(QObject *parent) : QObject(parent){}
+PrivateChat::PrivateChat(QObject *parent)
+    : QObject(parent)
+{
+    m_localId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+}
 
 PrivateChat::~PrivateChat()
 {
@@ -60,13 +68,38 @@ PrivateChat::~PrivateChat()
     }
 }
 
+
+//在网络服务启动前设置本机永久UUID。
+bool PrivateChat::setLocalId(const QString &localId)
+{
+    //网络线程启动后不能再修改本机ID。
+    if(m_running){
+        return false;
+    }
+
+    const QString localId1 = localId.trimmed();
+
+    //使用QUuid解析并校验数据库返回的ID。
+    const QUuid parsedUuid = QUuid::fromString(localId1);
+
+    if(parsedUuid.isNull()){
+        return false;
+    }
+
+    //网络层也统一保存为不带大括号的格式。
+    m_localId = parsedUuid.toString(QUuid::WithoutBraces).toStdString();
+
+    return true;
+}
+
 QVariantList PrivateChat::onlineUsers() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);  //保护m_peers同时只能被一个线程访问
     //添加当前在线用户
     QVariantList list;
-    for(const auto &[ip, info] : m_peers){
+    for(const auto &[id, info] : m_peers){
         QVariantMap user;
+        user["id"] = QString::fromStdString(info.id);
         user["name"] = QString::fromStdString(info.name);
         user["ip"] = QString::fromStdString(info.ip);
         list.append(user);
@@ -82,23 +115,23 @@ void PrivateChat::start(const QString &userName)
 
     //获取本机局域网IP
     int tmpSock = socket(PF_INET, SOCK_DGRAM, 0);
-    if (tmpSock < 0) {
+    if(tmpSock < 0){
         m_localIp = "127.0.0.1";
-    } else {
+    }else{
         sockaddr_in remote{};
         remote.sin_family = AF_INET;
         remote.sin_port = htons(53);          //任意外部端口
         inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr);  //任意外部 IP
         // connect绑定路由，以此来获取本机IP
-        if (::connect(tmpSock, (sockaddr*)&remote, sizeof(remote)) == 0) {
+        if(::connect(tmpSock, (sockaddr*)&remote, sizeof(remote)) == 0){
             sockaddr_in localAddr{};
             socklen_t addrLen = sizeof(localAddr);
-            if (getsockname(tmpSock, (sockaddr*)&localAddr, &addrLen) == 0) {
+            if(getsockname(tmpSock, (sockaddr*)&localAddr, &addrLen) == 0){
                 m_localIp = inet_ntoa(localAddr.sin_addr);
-            } else {
+            }else{
                 m_localIp = "127.0.0.1";
             }
-        } else {
+        }else{
             m_localIp = "127.0.0.1";
         }
         close(tmpSock);
@@ -115,16 +148,17 @@ void PrivateChat::start(const QString &userName)
     std::cout << "信使聊天服务已启动，用户: " << m_localName << std::endl;
 }
 
-void PrivateChat::sendMessageToUser(const QString &ip, const QString &msg)
+void PrivateChat::sendMessageToUser(const QString &id, const QString &msg)
 {
-    std::string ipStr = ip.toStdString();
+    std::string idStr = id.toStdString();
     std::string msgStr = msg.toStdString();
 
     //如果发给自己
-    if (ipStr == m_localIp || ipStr == "127.0.0.1" || ipStr == "::1") {
+    if (idStr == m_localId){
         //本地接收事件，不经过网络
-        QMetaObject::invokeMethod(this, [this, msgStr]() {
+        QMetaObject::invokeMethod(this, [this, msgStr](){
             emit messageReceived(
+                QString::fromStdString(m_localId),
                 QString::fromStdString(m_localName),
                 QString::fromStdString(m_localIp),
                 QString::fromStdString(msgStr)
@@ -133,8 +167,22 @@ void PrivateChat::sendMessageToUser(const QString &ip, const QString &msg)
         return;
     }
 
-    std::thread([ipStr, msgStr](){
-        int sendfd = ::socket(PF_INET, SOCK_STREAM, 0);
+    std::string targetIp;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_peers.find(idStr);
+        if (it != m_peers.end()) {
+            targetIp = it->second.ip;
+        } else {
+            std::cerr << "用户 " << idStr << " 不在线" << std::endl;
+            return;
+        }
+    }
+
+
+    std::string localId = m_localId;
+    std::thread([targetIp, msgStr, localId](){
+        int sendfd = socket(PF_INET, SOCK_STREAM, 0);
         if(sendfd < 0) {
             perror("tcp send socket create fail");
             return;
@@ -143,24 +191,30 @@ void PrivateChat::sendMessageToUser(const QString &ip, const QString &msg)
         sockaddr_in user{};
         user.sin_family = AF_INET;
         user.sin_port = htons(TCP_PORT);
-        inet_pton(AF_INET, ipStr.c_str(), &user.sin_addr);
+        inet_pton(AF_INET, targetIp.c_str(), &user.sin_addr);
 
         if(::connect(sendfd, (sockaddr*)&user, sizeof(user)) < 0) {
-            std::cerr << "连接 " << ipStr << " 失败" << std::endl;
+            std::cerr << "连接 " << targetIp << " 失败" << std::endl;
             close(sendfd);
             return;
         }
 
-        send(sendfd, msgStr.c_str(), msgStr.size(), 0);
+        //发送格式：“发送者ID：消息内容”
+        std::string fullMsg = localId + ":" + msgStr;
+        send(sendfd, fullMsg.c_str(), fullMsg.size(), 0);
         close(sendfd);
     }).detach();
 }
 
-void PrivateChat::emitMessageReceived(const std::string &name, const std::string &ip, const std::string &msg)
+void PrivateChat::emitMessageReceived(const std::string &id,
+                                      const std::string &name,
+                                      const std::string &ip,
+                                      const std::string &msg)
 {
     //线程安全地发射信号到主线程（由于不是使用QThread,只能通过QMetaObject::invokeMethod间接发射信号）
-    QMetaObject::invokeMethod(this, [this, name, ip, msg](){
+    QMetaObject::invokeMethod(this, [this, id, name, ip, msg](){
         emit messageReceived(
+            QString::fromStdString(id),
             QString::fromStdString(name),
             QString::fromStdString(ip),
             QString::fromStdString(msg)
@@ -185,12 +239,15 @@ void PrivateChat::broadcastThread()
     address.sin_port = htons(UDP_PORT);
     address.sin_addr.s_addr = inet_addr("255.255.255.255");
 
+    //广播格式“发送者ID：发送者名字”
+    std::string broadcastMsg = m_localId + ":" + m_localName;
+
     std::cout << "UDP广播线程已启动" << std::endl;
 
     while(m_running){
-        sendto(listenfd, m_localName.c_str(), m_localName.size(), 0,
+        sendto(listenfd, broadcastMsg.c_str(), broadcastMsg.size(), 0,
                (struct sockaddr*)&address, sizeof(address));
-        sleep(2);  // 每2秒广播一次
+        sleep(2);  //每2秒广播一次
     }
 
     close(listenfd);
@@ -223,24 +280,33 @@ void PrivateChat::listenThread()
 
     std::cout << "UDP监听线程已启动" << std::endl;
 
-    char userName[BUF_SIZE];
+    char buffer[BUF_SIZE];
 
     while(m_running){
         sockaddr_in sender{};
         socklen_t len = sizeof(sender);
         memset(&sender, 0, sizeof(sender));
 
-        int n = recvfrom(listenfd, userName, BUF_SIZE - 1, 0, (sockaddr*)&sender, &len);
+        int n = recvfrom(listenfd, buffer, BUF_SIZE - 1, 0, (sockaddr*)&sender, &len);
         if(n <= 0) continue;
 
-        userName[n] = 0;
+        buffer[n] = 0;
+        std::string data(buffer);
         std::string ip = inet_ntoa(sender.sin_addr);
+
+        //解析 "ID:用户名"
+        size_t colonPos = data.find(':');
+
+        if (colonPos == std::string::npos) continue;  //格式不对，跳过
+
+        std::string userId = data.substr(0, colonPos);
+        std::string userName = data.substr(colonPos + 1);
 
         //更新在线用户列表
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             auto now = std::chrono::steady_clock::now();
-            m_peers[ip] = {std::string(userName), ip, now};
+            m_peers[userId] = {userName, ip, now, userId};
         }
 
         //通知QML更新UI
@@ -248,7 +314,7 @@ void PrivateChat::listenThread()
             emit onlineUsersChanged();
         }, Qt::QueuedConnection);
 
-        std::cout << "发现用户: " << userName << " (" << ip << ")" << std::endl;
+        std::cout << "发现用户: " << userName << " ID:" << userId << " (" << ip << ")" << std::endl;
     }
 
     close(listenfd);
@@ -256,7 +322,7 @@ void PrivateChat::listenThread()
 }
 
 void PrivateChat::tcpServerThread()
-{ 
+{
     int serverfd = socket(PF_INET, SOCK_STREAM, 0);
     m_tcp_serverFd = serverfd;
     if(serverfd < 0){
@@ -305,22 +371,33 @@ void PrivateChat::tcpServerThread()
 
             if(n > 0){
                 buffer[n] = 0;
+                std::string data(buffer);
                 std::string ip = inet_ntoa(client_address.sin_addr);
+
+                //解析 "发送者ID:消息内容"
+                size_t colonPos = data.find(':');
+                if (colonPos == std::string::npos) {
+                    close(clientfd);
+                    return;
+                }
+
+                std::string senderId = data.substr(0, colonPos);
+                std::string message = data.substr(colonPos + 1);
 
                 //获取发送者名称
                 std::string senderName = "Unknown";
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    auto it = m_peers.find(ip);
+                    auto it = m_peers.find(senderId);
                     if (it != m_peers.end()) {
                         senderName = it->second.name;
                     }
                 }
 
-                std::cout << "收到消息来自 " << senderName << "(" << ip << "): " << buffer << std::endl;
+                std::cout << "收到消息来自 " << senderName << "(" << senderId << "): " << message << std::endl;
 
                 //发射消息接收信号
-                emitMessageReceived(senderName, ip, std::string(buffer));
+                emitMessageReceived(senderId, senderName, ip, message);
             }
 
             close(clientfd);
@@ -332,9 +409,9 @@ void PrivateChat::tcpServerThread()
 }
 
 void PrivateChat::cleanOfflineThread(){
-    constexpr auto timeout = std::chrono::seconds(6); //超过6秒未收到广播视为离线
+    constexpr auto timeout = std::chrono::seconds(10); //超过10秒未收到广播视为离线
     while(m_running) {
-        std::this_thread::sleep_for(std::chrono::seconds(3)); //每3秒检查一次
+        std::this_thread::sleep_for(std::chrono::seconds(5)); //每5秒检查一次
         bool changed = false;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -359,4 +436,8 @@ void PrivateChat::cleanOfflineThread(){
 
 QString PrivateChat::localIp() const {
     return QString::fromStdString(m_localIp);
+}
+
+QString PrivateChat::localId() const {
+    return QString::fromStdString(m_localId);
 }

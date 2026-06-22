@@ -10,7 +10,18 @@
 //          *增加文件发送功能(待完善)
 //     [v0.1.4] ZhouChengWei     2026-06-14 21:27:37
 //         * 处理了因为给自己发送消息而接收导致显示2次的问题
-
+//     [v0.1.5] HeZhiyuan    2026-06-18 19:23:35
+//         * 在初始化数据库后读取或创建本机永久peerId
+//           在PrivateChat网络线程启动前，将持久化peerId设置到网络层
+//           在线用户同步时使用网络层提供的UUID作为数据库peer_id
+//           IP不作为用户唯一标识
+//           接收消息时使用发送者的peerId保存用户信息和聊天记录
+//           发送消息时向网络层传递目标peerId，由网络层查询目标当前IP
+//     [v0.1.6] HeZhiyuan    2026-06-19 12:22:31
+//         * 修改初始化函数：在初始化数据库成功后，网络服务启动前加入本机peerId初始化
+//           并将peerId设置到网络层，避免每次运行都会给本机生成一个全新的id
+//     [v0.1.7] ZhouChengWei    2026-06-22 10:46:32
+//         * 把原来的按照IP发送消息改为ID,判断自己发送的消息也改为ID判断
 #include "appcontroller.h"
 
 #include <QVariantMap>
@@ -83,17 +94,32 @@ bool AppController::initialize(const QString &userName)
     }
 
     if (!m_database.open()) {
-        reportError(
-            QStringLiteral("数据库打开失败：")
-            + m_database.lastError());
+        reportError(QStringLiteral("数据库打开失败：") + m_database.lastError());
         return false;
     }
 
     //数据库连接成功后创建必要的数据表和索引
     if (!m_database.initSchema()) {
-        reportError(
-            QStringLiteral("数据库初始化失败：")
-            + m_database.lastError());
+        reportError(QStringLiteral("数据库初始化失败：") + m_database.lastError());
+        return false;
+    }
+
+
+    //数据库存储的peerId。
+    QString persistentLocalPeerId;
+
+    //本次运行临时生成的候选UUID
+    //第一次运行：数据库中没有本机ID，将该候选UUID保存到local_peer_id表
+    //后续运行：数据库中已经有本机ID，忽略本次新生成的候选UUID，并把以前保存的id返回到persistentLocalPeerId
+    if (!m_database.loadOrCreateLocalPeerId(m_privateChat.localId(), persistentLocalPeerId)) {
+        reportError( QStringLiteral("初始化本机永久ID失败：") + m_database.lastError());
+        return false;
+    }
+
+    //须在网络层启动之前，把数据库中的永久ID设置回网络层，
+    //如果在start之后设置，UDP广播线程可能已经使用临时UUID，造成同一次运行中出现两个身份
+    if (!m_privateChat.setLocalId(persistentLocalPeerId)) {
+        reportError(QStringLiteral("设置网络层本机永久ID失败"));
         return false;
     }
 
@@ -203,7 +229,7 @@ void AppController::sendMessage(const QString &peerId,
     }
 
     //如果目标是自己，直接本地保存，不经过网络
-    if (normalizedIp == m_privateChat.localIp()) {
+    if (normalizedPeerId == m_privateChat.localId()) {
         if (!m_database.saveMessage(normalizedPeerId, true, normalizedContent)) {
             reportError(QStringLiteral("保存消息失败：") + m_database.lastError());
             return;
@@ -215,7 +241,7 @@ void AppController::sendMessage(const QString &peerId,
     }
 
     //当前网络接口是异步发送，调用返回表示消息已交给发送线程，暂时不代表对方一定已经收到。
-    m_privateChat.sendMessageToUser(normalizedIp, normalizedContent);
+    m_privateChat.sendMessageToUser(normalizedPeerId, normalizedContent);
 
     //网络发送请求提交后保存本地历史记录
     if (!m_database.saveMessage(normalizedPeerId, true, normalizedContent)) {
@@ -366,17 +392,18 @@ void AppController::synchronizeOnlineUsers()
         //将每一个网络用户转换为QVariantMap
         const QVariantMap networkUser = item.toMap();
 
+        const QString peerId = networkUser.value(QStringLiteral("id")).toString().trimmed();
+
         const QString name = networkUser.value(QStringLiteral("name")).toString().trimmed();
 
         const QString ip = networkUser.value(QStringLiteral("ip")).toString().trimmed();
 
-        //name或ip缺失的网络记录不能写入数据库
+        //name,peerId,ip缺失的记录不能写入数据库
         if (name.isEmpty() || ip.isEmpty()) {continue;}
 
         QVariantMap peer;
 
-        //当前没有UUID，第一阶段使用IP作为peerId。
-        peer.insert(QStringLiteral("peerId"), ip);
+        peer.insert(QStringLiteral("peerId"), peerId);
         peer.insert(QStringLiteral("username"), name);
         peer.insert(QStringLiteral("ip"), ip);
         peer.insert(QStringLiteral("online"), true);
@@ -395,33 +422,38 @@ void AppController::synchronizeOnlineUsers()
 }
 
 //处理网络层收到的聊天消息，先保证发送者存在，再保存消息，最后刷新用户列表和当前会话
-void AppController::handleMessageReceived(const QString &fromName,
-                                          const QString &fromIp,
-                                          const QString &message)
+void AppController::handleMessageReceived( const QString &fromId,
+                                           const QString &fromName,
+                                           const QString &fromIp,
+                                           const QString &message)
 {
     //忽略来源IP为本机的消息，避免本机消息被重复保存和显示。
     if (fromIp == m_privateChat.localIp()) {
         return;
     }
 
-    //对网络层传入的数据进行标准化
+    //对网络层传入的数据进行去除字符串首尾空白
+    const QString normalizedPeerId = fromId.trimmed();
     const QString normalizedName = fromName.trimmed();
     const QString normalizedIp = fromIp.trimmed();
     const QString normalizedMessage = message.trimmed();
 
+    //按照ID判断消息是否来自本机
+    if (!normalizedPeerId.isEmpty()&& normalizedPeerId == m_privateChat.localId()) { return;}
+
     //ip和消息正文是保存消息所必需的数据
-    if (normalizedIp.isEmpty() || normalizedMessage.isEmpty()) { return;}
+    if (normalizedPeerId.isEmpty() || normalizedIp.isEmpty() || normalizedMessage.isEmpty()) { return;}
 
     //对方没有提供有效用户名时，使用ip作为界面显示名称
     const QString displayName = normalizedName.isEmpty() ? normalizedIp : normalizedName;
 
-    //当前阶段使用ip作为peerId。
-    if (!m_database.upsertPeer(normalizedIp, displayName, normalizedIp, true)) {
+    //先保证发送者存在于peers表
+    if (!m_database.upsertPeer(normalizedPeerId, displayName, normalizedIp, true)) {
         reportError(QStringLiteral("保存消息发送者失败：") + m_database.lastError());
         return;
     }
 
-    if (!m_database.saveMessage(normalizedIp, false, normalizedMessage)) {
+    if (!m_database.saveMessage(normalizedPeerId, false, normalizedMessage)) {
         reportError(QStringLiteral("保存接收消息失败：") + m_database.lastError());
         return;
     }
@@ -430,7 +462,7 @@ void AppController::handleMessageReceived(const QString &fromName,
     refreshPeers();
 
     //当消息属于当前会话时刷新聊天记录
-    if (m_currentPeerId == normalizedIp) {refreshMessages();}
+    if (m_currentPeerId == normalizedPeerId) { refreshMessages();}
 }
 
 //从数据库重新加载用户列表，只有新数据与缓存不同时才更新属性并通知 QML
@@ -448,7 +480,6 @@ void AppController::refreshPeers()
 void AppController::refreshMessages()
 {
     QVariantList loadedMessages;
-
     if (!m_currentPeerId.isEmpty()) { loadedMessages = m_database.loadMessages(m_currentPeerId);}
 
     if (loadedMessages == m_messages) { return;}

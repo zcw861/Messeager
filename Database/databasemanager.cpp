@@ -16,11 +16,15 @@
 //         * 修改读取历史记录逻辑，修改messages表建立的索引
 //     [v0.1.9] HeZhiyuan    2026-06-13 13:18:48
 //         * 修改构造函数
-//           修复open()未使用m_connectionName的问题
 //           新增：析构函数、增加在线用户事务同步功能
 //           修改：用户列表调整为在线优先、用户名排序
 //     [v0.1.10] HeZhiyuan    2026-06-14 15:57:04
 //         * 新增：删除用户
+//     [v0.1.2] HeZhiyuan    2026-06-18 20:23:31
+//         * 新增：local_peer_id表，用于保存本机唯一且持久化的peerId
+//                loadOrCreateLocalPeerId()，负责读取或创建本机永久peerId
+//                normalizePeerId()，负责校验UUID并统一为不带大括号的格式
+
 #include "databasemanager.h"
 
 #include <QDir>
@@ -32,25 +36,18 @@
 #include <QVariant>
 #include <QUuid>
 
-//为当前 DatabaseManager 生成唯一连接名。QSqlDatabase 的连接由全局连接池按名称管理，使用UUID防止多个对象意外共用或覆盖同一连接
-DatabaseManager::DatabaseManager(QObject *parent)
-    : QObject(parent), m_connectionName(QStringLiteral("messager_connection_") +
-                       QUuid::createUuid().toString(QUuid::WithoutBraces))
+//为当前DatabaseManager生成唯一连接名，QSqlDatabase的连接由全局连接池按名称管理，使用UUID防止多个对象意外共用或覆盖同一连接
+DatabaseManager::DatabaseManager(QObject *parent): QObject(parent)
 {}
 
 //关闭数据库连接并将其从Qt SQL全局连接池中移除
 DatabaseManager::~DatabaseManager()
 {
-    const QString connectionName = m_db.connectionName();
-
     if (m_db.isValid()) {m_db.close();}
 
     //必须先清空当前QSqlDatabase句柄
     //再从Qt的连接池中删除连接
     m_db = QSqlDatabase();
-
-    // 从Qt SQL的全局连接池中移除当前连接
-    if (!connectionName.isEmpty()) {QSqlDatabase::removeDatabase(connectionName);}
 }
 
 //打开 SQLite 数据库文件
@@ -79,7 +76,7 @@ bool DatabaseManager::open()
     m_databasePath = dataDir + "/messager.db";
 
     //使用构造函数生成的唯一名称，在Qt SQL连接池中创建连接
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
+    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"));
     m_db.setDatabaseName(m_databasePath);
 
     //打开数据库文件；失败时保存驱动返回的错误信息
@@ -96,12 +93,27 @@ bool DatabaseManager::open()
     return true;
 }
 
-//初始化数据库表。
-//目前创建两张表：
-//1.peers：保存局域网用户信息：id,用户名,ip,是否在线,更新时间
-//2.messages：保存与某个用户相关的聊天消息。
+//初始化数据库表
+//目前创建三张表：
+//1.local_peer_id：保存本机UUID
+//2.peers：保存局域网聊天用户
+//3.messages：保存聊天消息
 bool DatabaseManager::initSchema()
 {
+
+    //创建local_peer_id表:
+    //id固定为1，作用是限制整张表只能保存一条本机身份记录, peer_id保存网络层使用的永久UUID
+    const QString createUuidSql = R"(
+        CREATE TABLE IF NOT EXISTS local_peer_id(
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            peer_id TEXT NOT NULL UNIQUE
+        )
+    )";
+
+    if (!execSql(createUuidSql)) {
+        return false;
+    }
+
     const QString createPeersSql = R"(
         CREATE TABLE IF NOT EXISTS peers(
             peer_id TEXT PRIMARY KEY,
@@ -118,11 +130,11 @@ bool DatabaseManager::initSchema()
 
 
     //创建messages 表：
-    //message_id使用INTEGER PRIMARY KEY AUTOINCREMENT，让SQLite自动生成递增编号。
-    //peer_id表示这条消息属于哪个用户。
+    //message_id使用INTEGER PRIMARY KEY AUTOINCREMENT，让SQLite自动生成递增编号
+    //peer_id表示这条消息属于哪个用户
     //from_me表示消息方向：1：我发送的消息；0：对方发送的消息，用CHECK确定只能是0/1
     //FOREIGN KEY表示messages.peer_id必须对应peers.peer_id。
-    //ON DELETE CASCADE表示如果某个peer被删除，该 peer 对应的消息也自动删除。
+    //ON DELETE CASCADE表示如果某个peer被删除，该 peer 对应的消息也自动删除
     const QString createMessagesSql = R"(
         CREATE TABLE IF NOT EXISTS messages(
             message_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,8 +151,8 @@ bool DatabaseManager::initSchema()
     }
 
     //给messages表建立索引。
-    //查询聊天记录时经常使用：WHERE peer_id = ? ORDER BY message_id。
-    //建立(peer_id, message_id)组合索引，可以减少数据库扫描量。
+    //查询聊天记录时经常使用：WHERE peer_id = ? ORDER BY message_id
+    //建立(peer_id, message_id)组合索引，可以减少数据库扫描量
     const QString createMessagesByIdIndexSql = R"(
         CREATE INDEX IF NOT EXISTS idx_messages_peer_message_id
         ON messages(peer_id, message_id)
@@ -153,7 +165,7 @@ bool DatabaseManager::initSchema()
     return true;
 }
 
-//当前数据库文件的完整路径，方便运行后检查数据库文件位置。
+//当前数据库文件的完整路径，方便运行后检查数据库文件位置
 QString DatabaseManager::databasePath() const
 {
     return m_databasePath;
@@ -176,6 +188,114 @@ bool DatabaseManager::execSql(const QString &sql)
         qWarning() << "SQL: " << sql;
         return false;
     }
+    return true;
+}
+
+//校验并规范化用户UUID
+QString DatabaseManager::normalizePeerId(const QString &peerId)
+{
+    //先去除字符串首尾空白
+    const QString trimmedPeerId = peerId.trimmed();
+
+    //空字符串不是有效UUID
+    if (trimmedPeerId.isEmpty()) { return {};}
+
+    //QUuid::fromString负责解析UUID,它可以识别带大括号和不带大括号的UUID格式
+    const QUuid parsedUuid = QUuid::fromString(trimmedPeerId);
+
+    //解析失败或传入的是全零UUID时，parsedUuid会是null
+    if (parsedUuid.isNull()) { return {};}
+
+    //数据库统一保存成不带大括号的标准Uuid格式
+    return parsedUuid.toString(QUuid::WithoutBraces);
+}
+
+//读取或创建本机永久peer_id
+//第一次运行时，local_peer_id表中没有id=1的记录，函数会把网络层生成的candidatePeerId保存进去
+//后续运行时，id=1已经存在，INSERT OR IGNORE不会覆盖原来的peer_id，函数最终读取并返回第一次保存的永久peer_id
+bool DatabaseManager::loadOrCreateLocalPeerId( const QString &candidatePeerId, QString &persistentPeerId)
+{
+    //清理上一次错误
+    m_lastError.clear();
+
+    //先清空persistentPeerId,这样调用失败后，不会误用之前残留的ID
+    persistentPeerId.clear();
+
+    if (!m_db.isOpen()) {
+        m_lastError = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    //第一次生成的ID也要经过UUID校验
+    const QString normalizedCandidateId = normalizePeerId(candidatePeerId);
+
+    if (normalizedCandidateId.isEmpty()) {
+        m_lastError = QStringLiteral("网络层生成的本机ID不是有效UUID");
+        return false;
+    }
+
+    QSqlQuery insertQuery(m_db);
+
+    //INSERT OR IGNORE的作用：
+    //1. 如果local_peer_id不存在，就插入candidatePeerId
+    //2. 如果local_peer_id已经存在，因为setting_key是主键，SQLite会忽略本次插入，不覆盖原来的永久ID
+    const QString insertSql = R"(
+        INSERT OR IGNORE INTO local_peer_id( id, peer_id)
+        VALUES( 1, :peer_id)
+    )";
+
+    if (!insertQuery.prepare(insertSql)) {
+        m_lastError = insertQuery.lastError().text();
+        qWarning() << "准备本机ID保存语句失败:" << m_lastError;
+        return false;
+    }
+
+    //把UUID绑定到:peer_id参数
+    insertQuery.bindValue( QStringLiteral(":peer_id"), normalizedCandidateId);
+
+    if (!insertQuery.exec()) {
+        m_lastError = insertQuery.lastError().text();
+        qWarning() << "保存本机ID失败:" << m_lastError;
+        return false;
+    }
+
+    QSqlQuery selectQuery(m_db);
+
+    //读取唯一一条本机身份记录，id固定为1，因此不需要依靠其他查找
+    const QString selectSql = R"(
+        SELECT peer_id
+        FROM local_peer_id
+        WHERE id = 1
+    )";
+
+    if (!selectQuery.prepare(selectSql)) {
+        m_lastError = selectQuery.lastError().text();
+        qWarning() << "准备读取本机ID语句失败:" << m_lastError;
+        return false;
+    }
+
+    if (!selectQuery.exec()) {
+        m_lastError = selectQuery.lastError().text();
+        qWarning() << "读取本机ID失败:" << m_lastError;
+        return false;
+    }
+
+    //正常情况下，上面的INSERT OR IGNORE执行后一定能查询到记录。
+    if (!selectQuery.next()) {
+        m_lastError = QStringLiteral("数据库中没有找到本机ID记录");
+        return false;
+    }
+
+    //数据库里的值也要重新校验，避免数据库文件被手动修改后，把错误字符串作为网络身份继续广播
+    const QString normalizedStoredId = normalizePeerId(selectQuery.value(0).toString());
+
+    if (normalizedStoredId.isEmpty()) {
+        m_lastError = QStringLiteral("数据库中保存的本机ID不是有效UUID");
+        return false;
+    }
+
+    //把数据库确定的ID返回
+    persistentPeerId = normalizedStoredId;
     return true;
 }
 
@@ -224,9 +344,9 @@ QVariantList DatabaseManager::loadPeers()
 
 //插入或更新一个用户，peer_id 不存在时插入；已存在时更新用户名、IP、在线状态和时间
 bool DatabaseManager::upsertPeer(const QString &peerId,
-                                const QString &username,
-                                const QString &ip,
-                                bool online)
+                                 const QString &username,
+                                 const QString &ip,
+                                 bool online)
 {
     if (!m_db.isOpen()) {
         m_lastError = "数据库未打开";
