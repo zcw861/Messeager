@@ -48,7 +48,7 @@ ApplicationWindow {
 
    visible: true
    title: "Messager 信使"
-   //flags: Qt.Window | Qt.FramelessWindowHint //隐藏顶部默认菜单栏，但是需要自己实现窗口缩放（暂时还没有实现）
+   flags: Qt.Window | Qt.FramelessWindowHint //隐藏顶部默认菜单栏，但是需要自己实现窗口缩放（暂时还没有实现）
 
    //自己的信息
    property string myName: ""
@@ -72,8 +72,8 @@ ApplicationWindow {
    AppController {
        id: appController
        Component.onCompleted: {
-           appController.initialize("lll")
-           myName = "lll" //这一个建议和上一个整合
+           myName = "zcw"
+           appController.initialize(myName)
            myIp = appController.localIp()
        }
        //删除成功后，再清理QML的当前用户状态。
@@ -605,7 +605,7 @@ ApplicationWindow {
                  id: receiveInfo
 
                  text: root.pendingFileName
-                         + "\n大小：" + root.pendingFileSize + " 字节"
+                         + "\n大小：" + root.fileSizeJudgement(root.pendingFileSize)
                          + "\n来自：" + root.pendingFileIp
                  font.pixelSize: 15
                  color: "#4E5969"
