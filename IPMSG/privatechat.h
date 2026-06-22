@@ -42,7 +42,7 @@ struct UserInfo {
     std::string name;
     std::string ip;
     std::chrono::steady_clock::time_point lastSeen; //最后活跃时刻
-    std::string Id;     //用户唯一标识ID
+    std::string id;     //用户唯一标识ID
 };
 
 class PrivateChat : public QObject

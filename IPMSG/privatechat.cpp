@@ -18,7 +18,8 @@
 //     [v0.2.0] ZhouChengWei    2026-06-18 17:53:47
 //         * 将逻辑修改为用ID辨别唯一用户
 //     [v0.2.1] HeZhiyuan    2026-06-18 22:22:53
-//         * 新增：setLocalId()，在网络层启动前获取数据库提供的永久UUID，禁止网络线程启动后修改原本的UUID
+//         * 新增：setLocalId()，在网络层启动前获取数据库提供的id，禁止网络线程启动后修改
+
 #include "privatechat.h"
 
 #include <iostream>
@@ -67,33 +68,26 @@ PrivateChat::~PrivateChat()
     }
 }
 
+
 //在网络服务启动前设置本机永久UUID。
 bool PrivateChat::setLocalId(const QString &localId)
 {
     //网络线程启动后不能再修改本机ID。
-    //
-    //否则可能出现：
-    //UDP广播使用旧ID，但TCP消息使用新ID，
-    //导致其他主机认为这是两个不同用户。
-    if (m_running.load()) {
+    if (m_running) {
         return false;
     }
 
-    const QString trimmedLocalId = localId.trimmed();
+    const QString localId1 = localId.trimmed();
 
     //使用QUuid解析并校验数据库返回的ID。
-    const QUuid parsedUuid =
-        QUuid::fromString(trimmedLocalId);
+    const QUuid parsedUuid = QUuid::fromString(localId1);
 
     if (parsedUuid.isNull()) {
         return false;
     }
 
     //网络层也统一保存为不带大括号的格式。
-    m_localId =
-        parsedUuid
-            .toString(QUuid::WithoutBraces)
-            .toStdString();
+    m_localId = parsedUuid.toString(QUuid::WithoutBraces).toStdString();
 
     return true;
 }
@@ -105,7 +99,7 @@ QVariantList PrivateChat::onlineUsers() const
     QVariantList list;
     for(const auto &[id, info] : m_peers){
         QVariantMap user;
-        user["id"] = QString::fromStdString(info.Id);
+        user["id"] = QString::fromStdString(info.id);
         user["name"] = QString::fromStdString(info.name);
         user["ip"] = QString::fromStdString(info.ip);
         list.append(user);
@@ -121,23 +115,23 @@ void PrivateChat::start(const QString &userName)
 
     //获取本机局域网IP
     int tmpSock = socket(PF_INET, SOCK_DGRAM, 0);
-    if (tmpSock < 0) {
+    if(tmpSock < 0){
         m_localIp = "127.0.0.1";
-    } else {
+    }else{
         sockaddr_in remote{};
         remote.sin_family = AF_INET;
         remote.sin_port = htons(53);          //任意外部端口
         inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr);  //任意外部 IP
         // connect绑定路由，以此来获取本机IP
-        if (::connect(tmpSock, (sockaddr*)&remote, sizeof(remote)) == 0) {
+        if(::connect(tmpSock, (sockaddr*)&remote, sizeof(remote)) == 0){
             sockaddr_in localAddr{};
             socklen_t addrLen = sizeof(localAddr);
-            if (getsockname(tmpSock, (sockaddr*)&localAddr, &addrLen) == 0) {
+            if(getsockname(tmpSock, (sockaddr*)&localAddr, &addrLen) == 0){
                 m_localIp = inet_ntoa(localAddr.sin_addr);
-            } else {
+            }else{
                 m_localIp = "127.0.0.1";
             }
-        } else {
+        }else{
             m_localIp = "127.0.0.1";
         }
         close(tmpSock);
@@ -205,7 +199,7 @@ void PrivateChat::sendMessageToUser(const QString &id, const QString &msg)
             return;
         }
 
-        //发送格式:"发送者ID:消息内容"
+        //发送格式：“发送者ID：消息内容”
         std::string fullMsg = localId + ":" + msgStr;
         send(sendfd, fullMsg.c_str(), fullMsg.size(), 0);
         close(sendfd);
@@ -245,6 +239,7 @@ void PrivateChat::broadcastThread()
     address.sin_port = htons(UDP_PORT);
     address.sin_addr.s_addr = inet_addr("255.255.255.255");
 
+    //广播格式“发送者ID：发送者名字”
     std::string broadcastMsg = m_localId + ":" + m_localName;
 
     std::cout << "UDP广播线程已启动" << std::endl;
@@ -301,7 +296,8 @@ void PrivateChat::listenThread()
 
         //解析 "ID:用户名"
         size_t colonPos = data.find(':');
-        if (colonPos == std::string::npos) continue;  // 格式不对，跳过
+
+        if (colonPos == std::string::npos) continue;  //格式不对，跳过
 
         std::string userId = data.substr(0, colonPos);
         std::string userName = data.substr(colonPos + 1);
