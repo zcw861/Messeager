@@ -74,8 +74,7 @@ ApplicationWindow {
        Component.onCompleted: {
            appController.initialize("lll")
            myName = "lll" //这一个建议和上一个整合
-           myIp = "192.168.1.1"
-
+           myIp = appController.localIp()
        }
        //删除成功后，再清理QML的当前用户状态。
        onPeerDeleted: function(peerId) {
