@@ -29,9 +29,9 @@
 #include <unistd.h>
 #include <netdb.h>
 
-#define UDP_PORT 45454  // UDP端口
-#define TCP_PORT 45455  // TCP端口
-#define BUF_SIZE 1024   // 缓冲区大小
+#define UDP_PORT 45454  //UDP端口
+#define TCP_PORT 45455  //TCP端口
+#define BUF_SIZE 1024   //缓冲区大小
 
 PrivateChat::PrivateChat(QObject *parent)
     : QObject(parent)
@@ -70,7 +70,7 @@ PrivateChat::~PrivateChat()
 bool PrivateChat::setLocalId(const QString &localId)
 {
     //网络线程启动后不能再修改本机ID。
-    if (m_running) {
+    if(m_running){
         return false;
     }
 
@@ -79,7 +79,7 @@ bool PrivateChat::setLocalId(const QString &localId)
     //使用QUuid解析并校验数据库返回的ID。
     const QUuid parsedUuid = QUuid::fromString(localId1);
 
-    if (parsedUuid.isNull()) {
+    if(parsedUuid.isNull()){
         return false;
     }
 
@@ -151,9 +151,9 @@ void PrivateChat::sendMessageToUser(const QString &id, const QString &msg)
     std::string msgStr = msg.toStdString();
 
     //如果发给自己
-    if (idStr == m_localIp) {
+    if (idStr == m_localIp){
         //本地接收事件，不经过网络
-        QMetaObject::invokeMethod(this, [this, msgStr]() {
+        QMetaObject::invokeMethod(this, [this, msgStr](){
             emit messageReceived(
                 QString::fromStdString(m_localId),
                 QString::fromStdString(m_localName),
@@ -244,7 +244,7 @@ void PrivateChat::broadcastThread()
     while(m_running){
         sendto(listenfd, broadcastMsg.c_str(), broadcastMsg.size(), 0,
                (struct sockaddr*)&address, sizeof(address));
-        sleep(2);  // 每2秒广播一次
+        sleep(2);  //每2秒广播一次
     }
 
     close(listenfd);
