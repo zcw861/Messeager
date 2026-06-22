@@ -22,6 +22,9 @@
 //           并将peerId设置到网络层，避免每次运行都会给本机生成一个全新的id
 //     [v0.1.7] ZhouChengWei    2026-06-22 10:46:32
 //         * 把原来的按照IP发送消息改为ID,判断自己发送的消息也改为ID判断
+//     [v0.1.8] ZhouChengWei    2026-06-22 11:29:12
+//         * 添加了获取本机IP的函数
+
 #include "appcontroller.h"
 
 #include <QVariantMap>
@@ -193,6 +196,11 @@ bool AppController::deletePeer(const QString &peerId)
     emit peerDeleted(normalizedPeerId);
 
     return true;
+}
+
+QString AppController::localIp()
+{
+    return m_privateChat.localIp();
 }
 
 //校验聊天对象和消息内容，通过网络层发送消息，并将本机发送记录保存到数据库

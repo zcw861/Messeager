@@ -6,6 +6,8 @@
 //
 //     [v0.1.2] HeZhiyuan    2026-06-18 19:03:47
 //         *修改消息接收处理函数，增加发送者peerId参数
+//     [v0.1.3] ZhouChengWei    2026-06-22 11:29:12
+//         * 添加了获取本机IP的函数
 #pragma once
 
 #include <QObject>
@@ -53,6 +55,8 @@ public:
     Q_INVOKABLE void clearConversation();   //清除中的当前会话选择和消息缓存，使界面回到未选择用户状态
 
     Q_INVOKABLE bool deletePeer(const QString &peerId); //删除指定用户及其本地聊天记录
+
+    Q_INVOKABLE QString localIp(); //获取自己IP
 
     //向指定局域网用户发送消息并在数据库中保存本机发送记录
     Q_INVOKABLE void sendMessage(const QString &peerId,
