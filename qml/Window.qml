@@ -26,6 +26,9 @@
 //         * 增加处理文件传输的弹窗及其功能
 //     [v0.1.7] JiangFan    2026-06-18
 //         * 重构：使用Layout管理主窗口结构
+//     [v0.1.8] ZhouChengWei    2026-06-22 10.17
+//         * 实现了判断文件大小（B/KB/MB/GB），替代了接收文件时一直显示字节
+//         * 添加了接受文件时显示对方名字
 
 import QtQuick
 import QtQuick.Controls
@@ -52,7 +55,7 @@ ApplicationWindow {
    //当前待处理的文件接收请求
    property string pendingFileIp: ""
    property string pendingFileName: ""
-   property int pendingFileSize: 0
+   property double pendingFileSize: 0
 
    //文件传输状态显示
    property int fileTransferPercent: 0
@@ -62,7 +65,7 @@ ApplicationWindow {
    AppController {
        id: appController
        Component.onCompleted: {
-           appController.initialize("lll")
+           appController.initialize("zcw")
        }
        //删除成功后，再清理QML的当前用户状态。
        onPeerDeleted: function(peerId) {
@@ -113,8 +116,34 @@ ApplicationWindow {
        //错误提示
        onOperationFailed: function(message)
        {
-               console.log("操作失败: ", message)
-               root.fileTransferStatusText = message
+              console.log("操作失败: ", message)
+              root.fileTransferStatusText = message
+       }
+   }
+
+   //判断文件大小，用于转换B/KB/MB/GB
+   function fileSizeJudgement(fileSize){
+       var size = 0
+       //B
+       if(fileSize < 1024){
+              size = fileSize
+              return size.toFixed(1) + " B"
+       }
+
+       //KB
+       if(fileSize < 1024 * 1024){
+              size = fileSize / 1024
+              return size.toFixed(1) + " KB"
+       }
+       //MB
+       if(fileSize < 1024 * 1024 * 1024){
+              size = fileSize / (1024 * 1024)
+              return size.toFixed(1) + " MB"
+       }
+       //GB
+       if(fileSize < 1024 * 1024 * 1024 * 1024){
+              size = fileSize / (1024 * 1024 * 1024)
+              return size.toFixed(1) + " GB"
        }
    }
 
@@ -385,8 +414,8 @@ ApplicationWindow {
               id: receiveInfo
 
               text: root.pendingFileName
-                      + "\n大小：" + root.pendingFileSize + " 字节"
-                      + "\n来自：" + root.pendingFileIp
+                      + "\n大小：" + root.fileSizeJudgement(root.pendingFileSize)
+                      + "\n来自：" + root.currentPeerName + "(" + root.pendingFileIp + ")"
               font.pixelSize: 15
               color: "#4E5969"
               wrapMode: Text.Wrap
