@@ -7,6 +7,8 @@
 //         * 实现了一系列基础的群聊函数（连接成员，发送群消息，创建群聊)
 //     [v0.1.2] ZhouChengWei    2026-06-23 13:23:06
 //         * 添加了清理函数，以及接收函数
+//     [v0.1.3] ZhouChengWei    2026-06-23 15:21:32
+//         * 添加了群聊邀请处理函数
 
 #include "groupchat.h"
 #include "chat.h"
@@ -72,20 +74,45 @@ QString GroupChat::createGroup(const std::vector<UserInfo> &groupMembers)
         m_epollThread = std::thread(&GroupChat::epollLoop, this);
     }
 
-    //为每个群成员建立连接
     QString localId = m_chat->localId();
+    QString localName = m_chat->localName();
+
     for (const auto &member : groupMembers) {
-        if (member.id == localId) continue;
-        int fd = connectToMember(member.ip);
-        if (fd >= 0) {
-            addConnection(groupId, member.id, fd);
-        } else {
-            std::cerr << "连接群成员失败: " << member.name << " (" << member.ip << ")" << std::endl;
+        if (member.id == localId.toStdString()) continue;
+
+        //发送UDP邀请包（通知对方）
+        std::string targetIp = member.ip;
+        std::string payload = groupId + ":" + localId.toStdString() + ":" + localName.toStdString();
+
+        std::thread([targetIp, payload]() {
+            int fd = socket(PF_INET, SOCK_DGRAM, 0);
+            if (fd < 0) return;
+
+            sockaddr_in addr{};
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons(UDP_PORT);
+            inet_pton(AF_INET, targetIp.c_str(), &addr.sin_addr);
+
+            auto packet = buildUdpPacket(MSG_TYPE_UDP_UNICAST, payload);
+            sendto(fd, packet.data(), packet.size(), 0, (sockaddr *) &addr, sizeof(addr));
+            close(fd);
+        }).detach();
+
+        //判断是否由自己主动连接（UUID较小的一方主动）
+        if (localId.toStdString() < member.id) {
+            int fd = connectToMember(member.ip);
+            if (fd >= 0) {
+                addConnection(groupId, member.id, fd);
+            } else {
+                std::cerr << "连接群成员失败: " << member.name << std::endl;
+            }
         }
     }
 
+    std::cout << "群聊创建成功，群ID: " << groupId << std::endl;
     return QString::fromStdString(groupId);
 }
+
 
 int GroupChat::connectToMember(const std::string &ip)
 {
@@ -239,6 +266,53 @@ void GroupChat::sendMsgToGroup(const std::string &groupId, const std::string &co
             total += n;
         }
     }
+}
+
+void GroupChat::handleGroupInvite(const QString &groupId, const QString &inviterId,
+                                  const QString &inviterName, const QString &inviterIp)
+{
+    //检查是否已在群中
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_sessions.find(groupId.toStdString()) != m_sessions.end()) return;
+    }
+
+    //创建会话
+    GroupSession session;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_sessions[groupId.toStdString()] = session;
+    }
+
+    //启动epoll
+    if (!m_running) {
+        m_running = true;
+        m_epollFd = epoll_create1(0);
+        m_epollThread = std::thread(&GroupChat::epollLoop, this);
+    }
+
+    //UUID较小的一方主动连接
+    if (m_chat->localId().toStdString() < inviterId.toStdString()) {
+        std::thread([this, groupId = groupId.toStdString(),
+                    inviterId = inviterId.toStdString(),
+                    inviterIp = inviterIp.toStdString()]() {
+            int fd = socket(AF_INET, SOCK_STREAM, 0);
+            if (fd < 0) return;
+            sockaddr_in addr{};
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons(TCP_PORT);
+            inet_pton(AF_INET, inviterIp.c_str(), &addr.sin_addr);
+            if (::connect(fd, (sockaddr*)&addr, sizeof(addr)) == 0) {
+                setNonBlocking(fd);
+                addConnection(groupId, inviterId, fd);
+                std::cout << "自动加入群聊并连接发起者: " << groupId << std::endl;
+            } else {
+                close(fd);
+            }
+        }).detach();
+    }
+    //如果被邀请者的UUID较大，则不主动连接，等待邀请者连接自己。
+    //邀请者会在createGroup中连接UUID较小的成员。
 }
 
 void GroupChat::cleanupFd(int fd) {

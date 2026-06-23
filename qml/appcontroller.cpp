@@ -33,7 +33,7 @@
 
 
 AppController::AppController(QObject *parent)
-    : QObject(parent)
+    : QObject(parent), m_chat(this), m_groupChat(&m_chat, this)
 {
     //在线用户列表发生变化,AppController执行数据库同步
     connect(&m_chat, &Chat::onlineUsersChanged, this, &AppController::synchronizeOnlineUsers);
@@ -52,6 +52,10 @@ AppController::AppController(QObject *parent)
     //文件传输完成
     connect(&m_translateFile, &TranslateFile::fileTransferFinished, this, &AppController::fileTransferFinished
     );
+
+    //连接群邀请信号
+    connect(&m_chat, &Chat::groupInviteReceived,
+            &m_groupChat, &GroupChat::handleGroupInvite);
 
 }
 

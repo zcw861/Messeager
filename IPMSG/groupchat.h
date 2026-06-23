@@ -8,6 +8,8 @@
 //     因此，群聊模块为聊天模块的子模块
 //     [v0.1.1] ZhouChengWei    2026-06-23 13:23:06
 //         * 添加了清理函数，以及接收函数
+//     [v0.1.2] ZhouChengWei    2026-06-23 15:21:32
+//         * 添加了群聊邀请处理函数
 
 #pragma once
 
@@ -42,15 +44,20 @@ public:
 
     QString createGroup(const std::vector<UserInfo> &groupMembers); //创建群聊
     void sendMsgToGroup(const std::string &groupId, const std::string &content); //发送群聊消息
+    void addConnection(const std::string &groupId, const std::string &memberId, int fd);    //添加链接
 
 signals:
     void groupMessageReceived(const QString &groupId, const QString &fromId,
                               const QString &fromName, const QString &content);
 
+public slots:
+    void handleGroupInvite(const QString &groupId, const QString &inviterId,
+                           const QString &inviterName, const QString &inviterIp);   //处理群聊邀请
+
+
 private:
     static bool setNonBlocking(int fd);
     void epollLoop();   //epoll事件循环
-    void addConnection(const std::string &groupId, const std::string &memberId, int fd);
     int connectToMember(const std::string &ip);     //建立到指定IP的TCP连接
     void cleanupFd(int fd);  //清理断开的连接
     int recvFull(int fd, void *buf, size_t len); //接收对应字节数据

@@ -22,6 +22,8 @@
 //         * 将逻辑修改为用ID辨别唯一用户
 //     [v0.2.1] HeZhiyuan    2026-06-18 22:11:02
 //         * 新增：setLocalId()，允许控制层在网络线程启动前设置UUID
+//     [v0.2.2] ZhouChengWei    2026-06-23 15:20:14
+//         * 增加了群聊邀请信号
 
 #pragma once
 
@@ -36,6 +38,8 @@
 #include <mutex>
 
 #include "common.h"
+
+class GroupChat;
 
 class Chat : public QObject
 {
@@ -59,6 +63,8 @@ public:
 signals:
     void onlineUsersChanged();  //通知在线用户变化
     void messageReceived(const QString &fromId, const QString &fromName, const QString &fromIp, const QString &message);   //通知收到消息
+    void groupInviteReceived(const QString &groupId, const QString &inviterId,
+                             const QString &inviterName, const QString &inviterIp);     //收到群聊邀请
 
 private:
     void broadcastThread();     //广播线程

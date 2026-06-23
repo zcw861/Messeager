@@ -21,8 +21,11 @@
 //         * 新增：setLocalId()，在网络层启动前获取数据库提供的id，禁止网络线程启动后修改
 //     [v0.2.2] ZhouChengWei    2026-06-22 22:25:51
 //         * 把收发消息全部重构为MsgData（见common.h)类型，以便区分消息类型，为群聊做准备
+//     [v0.2.3] ZhouChengWei    2026-06-23 15:20:14
+//         * 广播消息分为发现用户和群聊邀请
 
 #include "chat.h"
+#include "groupchat.h"
 
 #include <iostream>
 #include <cstring>
@@ -322,8 +325,24 @@ void Chat::listenThread()
             }, Qt::QueuedConnection);
 
             std::cout << "发现用户: " << userName << " ID:" << userId << " (" << ip << ")" << std::endl;
+        }else if (type == MSG_TYPE_UDP_UNICAST) {
+            //解析"群ID:邀请者ID:邀请者名字"
+            size_t pos1 = payload.find(':');
+            size_t pos2 = payload.find(':', pos1 + 1);
+            if (pos1 == std::string::npos || pos2 == std::string::npos) continue;
+
+            std::string groupId = payload.substr(0, pos1);
+            std::string inviterId = payload.substr(pos1 + 1, pos2 - pos1 - 1);
+            std::string inviterName = payload.substr(pos2 + 1);
+
+            QMetaObject::invokeMethod(this, [this, groupId, inviterId, inviterName, ip]() {
+                emit groupInviteReceived(
+                    QString::fromStdString(groupId),
+                    QString::fromStdString(inviterId),
+                    QString::fromStdString(inviterName),
+                    QString::fromStdString(ip));
+            }, Qt::QueuedConnection);
         }
-        //处理其他UDP类型
     }
 
     close(listenfd);
@@ -448,5 +467,5 @@ QString Chat::localId() const {
 }
 
 QString Chat::localName() const{
-    QString::fromStdString(m_localName);
+    return QString::fromStdString(m_localName);
 }
