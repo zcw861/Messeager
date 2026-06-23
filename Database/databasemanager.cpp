@@ -20,7 +20,7 @@
 //           修改：用户列表调整为在线优先、用户名排序
 //     [v0.1.10] HeZhiyuan    2026-06-14 15:57:04
 //         * 新增：删除用户
-//     [v0.1.2] HeZhiyuan    2026-06-18 20:23:31
+//     [v0.1.11] HeZhiyuan    2026-06-18 20:23:31
 //         * 新增：local_peer_id表，用于保存本机唯一且持久化的peerId
 //                loadOrCreateLocalPeerId()，负责读取或创建本机永久peerId
 //                normalizePeerId()，负责校验UUID并统一为不带大括号的格式
@@ -97,7 +97,8 @@ bool DatabaseManager::open()
 //目前创建三张表：
 //1.local_peer_id：保存本机UUID
 //2.peers：保存局域网聊天用户
-//3.messages：保存聊天消息
+//3.messages：保存私聊聊天消息
+//群聊
 bool DatabaseManager::initSchema()
 {
 
@@ -161,6 +162,17 @@ bool DatabaseManager::initSchema()
     if (!execSql(createMessagesByIdIndexSql)) {
         return false;
     }
+
+    // //创建群聊信息表
+    // const QString createGroupsSql = R"(
+    //     CREATE TABLE IF NOT EXISTS KEY groups(
+    //         group_id TEXT PRIMARY KEY,
+    //         group_name TEXT NOT NULL CHECK(length(trim(group_name)) BETWEEN 1 AND 50),
+    //         owner_id TEXT NOT NULL,
+    //         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    //     )
+    // )";
+    // if (!execSql(createGroupsSql)) { return false;}
 
     return true;
 }
