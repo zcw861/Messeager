@@ -69,6 +69,11 @@ ApplicationWindow {
    property string currentPeerName: ""
    property string currentPeerIp: ""
 
+   //群聊信息
+   property string currentGroupId: ""
+   property string currentGroupName: ""
+   property bool currentIsGroup: false //当前会话是否为群聊
+
    //当前待处理的文件接收请求
    property string pendingFileIp: ""
    property string pendingFileName: ""
@@ -135,6 +140,12 @@ ApplicationWindow {
               root.fileTransferStatusText = message
        }
    }
+
+   //当前群聊成员列表
+   ListModel {
+       id: groupMemberModel
+   }
+
 
    //判断文件大小，用于转换B/KB/MB/GB
    function fileSizeJudgement(fileSize){
@@ -253,6 +264,36 @@ ApplicationWindow {
       root.myIp = appController.localIp()
 
       console.log("自动登录成功！用户名： ", saveName)
+   }
+
+   //打开群聊会话
+   function openGroupChat(groupId, groupName, members)
+   {
+       //记录当前群聊状态
+       root.currentIsGroup = true
+       root.currentGroupId = groupId
+       root.currentGroupName = groupName
+
+       root.currentPeerId = groupId
+       root.currentPeerName = groupName
+       root.currentPeerIp = ""
+
+       //清空当前输入框
+       inputPanel.clear()
+
+       //刷新群成员列表
+       groupMemberModel.clear()
+
+       for (var i = 0; i < members.length; i++)
+           groupMemberModel.append({
+              peerId: members[i].peerId,
+              username: members[i].username,
+              ip: members[i].ip,
+              online: members[i].online,
+              isSelf: members[i].isSelf
+           })
+
+       console.log("打开群聊：", groupId, groupName, "成员数：", members.length)
    }
 
    //登录弹窗
@@ -393,7 +434,6 @@ ApplicationWindow {
                           }
                        }
 
-
                        TextField {
                            id:myNameEdit
                            text: myName
@@ -401,7 +441,7 @@ ApplicationWindow {
                            Layout.leftMargin: 10
                            Layout.preferredHeight: 30
 
-                           Layout.preferredWidth: Math.min(150, Math.max(40, myNameMetrics.width + 24))
+                           Layout.preferredWidth: myNameEdit.contentWidth + 20 //加上20留点空
                            Layout.minimumWidth: 30
                            Layout.maximumWidth: 300
 
@@ -589,6 +629,13 @@ ApplicationWindow {
                              if (root.currentPeerId !== peerId){
                                  inputPanel.clear()
                              }
+
+                             //选择个人用户时，退出群聊状态
+                             root.currentGroupId = ""
+                             root.currentGroupName = ""
+                             root.currentIsGroup = false
+                             groupMemberModel.clear()
+
                              //保存当前会话所需的用户信息
                              root.currentPeerId = peerId
                              root.currentPeerName = username
@@ -620,6 +667,15 @@ ApplicationWindow {
                          onSearchTextChanged: function(keyword) {
                              //待改
                              console.log("搜索用户", keyword)
+                         }
+
+                         //接收PeerPanel发出的群聊选择信号
+                         Connections {
+                             target: peerPanel
+
+                             function onGroupSelected(groupId, groupName, members){
+                                 root.openGroupChat(groupId, groupName, members)
+                             }
                          }
                      }
 
@@ -660,20 +716,163 @@ ApplicationWindow {
                                     }
                                 }
 
-                                //右侧聊天窗口：点击左侧用户后才显示
-                                ChatPanel {
-                                    id: chatPanel
+                                RowLayout {
+                                   id: chatContentLayout
 
-                                    anchors.fill: parent
+                                   anchors.fill:parent
+                                   spacing: 0
 
-                                    visible: root.currentPeerId !== ""
+                                   visible: root.currentPeerId !== ""
 
-                                    currentPeerId: root.currentPeerId
-                                    currentPeerName: root.currentPeerName
+                                   //右侧聊天窗口：点击左侧用户后才显示
+                                   ChatPanel {
+                                      id: chatPanel
 
-                                    //把窗口中的消息模型传给聊天显示区
-                                    messageModel: appController.messages
-                                    color: "#FFFFFF"
+                                      Layout.fillWidth: true
+                                      Layout.fillHeight: true
+
+                                      currentPeerId: root.currentPeerId
+                                      currentPeerName: root.currentPeerName
+
+                                      //把窗口中的消息模型传给聊天显示区
+                                      messageModel: appController.messages
+                                      color: "#FFFFFF"
+                                   }
+
+                                   //群成员列表
+                                   Rectangle {
+                                      id: groupMemberPanel
+
+                                      Layout.preferredWidth: 150
+                                      Layout.topMargin: 50 //这个数值跟ChatPanel.qml的顶部栏高度一致
+                                      Layout.fillHeight: true
+
+                                      visible: root.currentIsGroup
+
+                                      color: "#FAFAFA"
+                                      border.color: "#e0e0e0"
+                                      border.width: 1
+
+                                      ColumnLayout {
+                                          anchors.fill: parent
+                                          spacing: 0
+
+                                          //顶部标题
+                                          Rectangle {
+                                              Layout.fillWidth: true
+                                              Layout.preferredHeight: 40
+
+                                              color: "#FFFFFF"
+
+                                              Text {
+                                                 text: qsTr("群成员： ") + groupMemberModel.count
+                                                 font.pixelSize: 15
+                                                 font.bold: true
+                                                 color: "black"
+
+                                                 anchors.left: parent.left
+                                                 anchors.leftMargin: 10
+                                                 anchors.verticalCenter: parent.verticalCenter
+                                              }
+                                          }
+
+                                          //分割线
+                                          Rectangle {
+                                             Layout.fillWidth: true
+                                             Layout.preferredHeight: 1
+                                             color: "#e0e0e0"
+                                          }
+
+                                          //成员列表
+                                          ListView {
+                                             id: groupMemberListView
+
+                                             Layout.fillWidth: true
+                                             Layout.fillHeight: true
+
+                                             clip: true
+                                             model: groupMemberModel
+
+                                             delegate: Rectangle {
+                                                 width: groupMemberListView.width
+                                                 height: 50
+
+                                                 color: memberHover.hovered? "#F2F3F5" : "transparent"
+
+                                                 HoverHandler {
+                                                    id: memberHover
+                                                 }
+
+                                                 RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 10
+                                                    anchors.rightMargin: 10
+                                                    spacing: 10
+
+                                                    //头像
+                                                    Rectangle {
+                                                        Layout.preferredHeight: 30
+                                                        Layout.preferredWidth: 30
+                                                        Layout.alignment: Qt.AlignVCenter
+
+                                                        radius:20
+                                                        color: isSelf ? "#D8ECFF" : "#EEEEEE"
+
+                                                        Text {
+                                                            text: username.length > 0 ? username.charAt(0) : "?"
+                                                            font.pixelSize: 15
+                                                            color: "green"
+
+                                                            anchors.centerIn: parent
+                                                        }
+                                                    }
+
+                                                    //名字和状态
+                                                    ColumnLayout {
+                                                        Layout.fillWidth: true
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                        spacing: 1
+
+                                                        Text {
+                                                           Layout.fillWidth: true
+
+                                                           text: isSelf ? username + "(me)" : username
+                                                           font.pixelSize: 15
+                                                           color: "#676767"
+                                                           elide: Text.ElideRight
+                                                        }
+
+                                                        //群成员在线状态信息
+                                                        RowLayout {
+                                                           id: memberMessageLayout
+
+                                                           Layout.fillWidth: true
+                                                           Layout.fillHeight: true
+
+                                                           //在线状态原点
+                                                           Rectangle{
+
+                                                              width: 10
+                                                              height: 10
+                                                              radius: 20
+                                                              color: online ? "#00CA00" : "#B8B8B8"
+                                                           }
+
+                                                           Text {
+                                                              Layout.fillWidth: true
+
+                                                              text: ip
+                                                              font.pixelSize: 10
+                                                              color: online ? "#43A047" : "#999999"
+                                                              elide: Text.ElideRight
+                                                           }
+                                                        }
+                                                    }
+                                                 }
+                                             }
+                                          }
+                                      }
+                                   }
                                 }
                              }
 
@@ -1083,6 +1282,11 @@ ApplicationWindow {
                       root.startSystemResize(Qt.BottomEdge | Qt.RightEdge)
                }
            }
+       }
+
+       //群聊用户右侧用户列表左拉伸
+       Rectangle {
+
        }
    }
 }

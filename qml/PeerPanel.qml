@@ -432,6 +432,9 @@ Rectangle {
                             if (peerPanel.currentGroupId === groupDelegate.groupId) {
                                 peerPanel.currentGroupId = ""
 
+                                //告诉Window.qml清空右侧聊天区域
+                                peerPanel.peerClosed()
+
                                 console.log( "取消选择群聊:",groupDelegate.groupId )
                                 return
                             }
@@ -631,7 +634,6 @@ Rectangle {
                 }
             }
 
-
             TapHandler {
                 id: clearSearchHandler
 
@@ -639,9 +641,7 @@ Rectangle {
                     peerPanel.clearSearchFocus()
                 }
             }
-
         }
-
     }
 
     //清楚搜索框焦点
@@ -692,6 +692,19 @@ Rectangle {
                 var added = peerPanel.addTemporaryGroup( groupId, groupName, members)
                 if (!added)
                     return
+
+                //创建成功后立即选中新群聊
+                peerPanel.currentGroupId = groupId
+
+                //如果正在私聊，关闭私聊
+                if (peerPanel.currentGroupId.length > 0)
+                    peerPanel.peerClosed()
+
+                //通知Window.qml打开群聊
+                peerPanel.groupSelected(groupId, groupName, members)
+
+                //传递新群聊信息给Window.qml
+                peerPanel.groupSelected(groupId, groupName, members)
 
                 //暂时不调用AppController，也不写入数据库
                 console.log("PeerPanel 收到群聊创建结果")
