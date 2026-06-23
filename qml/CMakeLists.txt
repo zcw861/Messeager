@@ -31,7 +31,7 @@ qt_add_qml_module(appMessager
                 InviteUserInterface.qml
     RESOURCES
                 ../source/file.svg
-                ../source/headPortrait.svg
+
                 ../source/close.svg
                 ../source/smaller.svg
                 ../source/bigger.svg

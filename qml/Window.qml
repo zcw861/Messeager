@@ -44,6 +44,10 @@ import QtQuick.Layouts
 ApplicationWindow {
    id: root
 
+   Component.onCompleted: {
+       root.autoLogin()
+   }
+
    width: 1000
    height: 700
    minimumWidth: 800
@@ -228,13 +232,36 @@ ApplicationWindow {
        console.log("登录成功！用户名： ", userName)
    }
 
+   //自动登录函数:如果此前保存过用户名，则直接自动登录
+   function autoLogin() {
+      var saveName = appController.savedUserName()
+
+      if(saveName.length === 0)
+      {
+           console.log("未保存过此用户")
+           return
+      }
+
+      if(!appController.initialize(saveName))
+      {
+           console.log("自动登录失败")
+           return
+      }
+
+      root.myName = saveName
+      root.isLogin = true
+      root.myIp = appController.localIp()
+
+      console.log("自动登录成功！用户名： ", saveName)
+   }
+
    //登录弹窗
    Window {
       id: loginWindow
 
       width: 250
       height: 200
-      visible: !isLogin
+      visible: !root.isLogin
 
       title: qsTr("登录")
       color: "white"
@@ -341,36 +368,68 @@ ApplicationWindow {
 
                        spacing: 0
 
+                       //头像（类似于inviteUserInterface.qml 500)
                        Rectangle {
                           id: headPortrait
 
-                          Layout.preferredHeight: 25
-                          Layout.preferredWidth: 25
+                          Layout.preferredHeight: 28
+                          Layout.preferredWidth: 28
                           Layout.leftMargin: 5
-                          color: "white"
+                          Layout.alignment: Qt.AlignVCenter
 
-                          //圆框好像有点丑
-                          //radius: 100
-                          //border.color: "black"
-                          //border.width: 1
+                          color: "#b2e4ff"
+                          radius: 5
 
-                          //头像
-                          Image {
-                             source: "source/headPortrait.svg"
+                          Text {
+                              width:parent.width
+                              height: parent.height
 
-                             width: 20
-                             height: 20
+                              text: myName.length > 0 ? myName.charAt(0) : "?"
+                              color: "#1c82ff"
+                              font.pixelSize: 23
 
-                             anchors.centerIn: parent
+                              horizontalAlignment: Text.AlignHCenter
+                              verticalAlignment: Text.AlignVCenter
                           }
                        }
 
-                       Text {
-                          id: myNametext
-                          text: myName
-                          font.pixelSize: 20
-                          Layout.leftMargin: 5
+
+                       TextField {
+                           id:myNameEdit
+                           text: myName
+                           font.pixelSize: 20
+                           Layout.leftMargin: 10
+                           Layout.preferredHeight: 30
+
+                           Layout.preferredWidth: Math.min(150, Math.max(40, myNameMetrics.width + 24))
+                           Layout.minimumWidth: 30
+                           Layout.maximumWidth: 300
+
+                           //单行
+                           selectByMouse: true
+
+                           //外观处理：看起来更像普通文字
+                           background: Rectangle {
+                               color: myNameEdit.activeFocus ?  "#F5F7FA" : "transparent"
+                               radius: 4
+                               border.color: myNameEdit.activeFocus ? "#12B7F5" : "transparent"
+                               border.width: 1
+                           }
+
+                           //回车确认修改
+                           onAccepted: {
+                               root.myName = myNameEdit.text
+
+                           }
                        }
+
+
+                       // Text {
+                       //    id: myNametext
+                       //    text: myName
+                       //    font.pixelSize: 20
+                       //    Layout.leftMargin: 10
+                       // }
 
                        Text {
                           id: myIpText

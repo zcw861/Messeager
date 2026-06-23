@@ -29,6 +29,7 @@
 #include <QVariantMap>
 #include <QDebug>
 #include <QFileInfo>
+#include <QSettings>
 
 
 AppController::AppController(QObject *parent)
@@ -137,6 +138,10 @@ bool AppController::initialize(const QString &userName)
     //所有必要步骤完成后再将控制器标记为可用
     m_ready = true;
     emit readyChanged();
+
+    //初始化成功后，保存本次登录用户名
+    QSettings s;
+    s.setValue(QStringLiteral("login/userName"), normalizedName);
 
     return true;
 }
@@ -502,4 +507,18 @@ void AppController::reportError(const QString &message)
 
     emit lastErrorChanged();
     emit operationFailed(message);
+}
+
+//读取上次保存的用户名
+QString AppController::savedUserName() const
+{
+    QSettings s;
+    return s.value(QStringLiteral("login/userName")).toString().trimmed();
+}
+
+//清除上次登录用户名
+void AppController::clearSavedUserName()
+{
+    QSettings s;
+    s.remove(QStringLiteral("login/userName"));
 }

@@ -75,6 +75,9 @@ public:
     //拒绝文件请求
     Q_INVOKABLE void rejectFile(const QString &ip);
 
+    Q_INVOKABLE QString savedUserName() const; //读取上次登录用户名
+    Q_INVOKABLE void clearSavedUserName();     //清除上次登录用户名
+
 signals:
     void peersChanged();    //用户列表发生变化时发出，通知QML重新读取peers属性
     void messagesChanged();     //当前聊天消息列表发生变化时发出，通知QML刷新聊天列表

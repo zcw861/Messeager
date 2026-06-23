@@ -414,6 +414,7 @@ void PrivateChat::tcpServerThread()
 }
 
 void PrivateChat::cleanOfflineThread(){
+
     constexpr auto timeout = std::chrono::seconds(10); //超过10秒未收到广播视为离线
     while(m_running) {
         std::this_thread::sleep_for(std::chrono::seconds(5)); //每5秒检查一次
