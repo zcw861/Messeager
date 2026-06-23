@@ -37,13 +37,13 @@
 
 #include "common.h"
 
-class PrivateChat : public QObject
+class Chat : public QObject
 {
     Q_OBJECT
 
 public:
-    explicit PrivateChat(QObject *parent = nullptr);
-    ~PrivateChat();
+    explicit Chat(QObject *parent = nullptr);
+    ~Chat();
 
     QVariantList onlineUsers() const;
 
@@ -54,6 +54,7 @@ public:
 
     QString localIp() const;    //提供本机IP
     QString localId() const;    //提供本机ID
+    QString localName() const;  //提供本机名字
 
 signals:
     void onlineUsersChanged();  //通知在线用户变化

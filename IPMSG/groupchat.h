@@ -4,17 +4,31 @@
 // Description:
 //     群聊相关的函数，在比较了组播与UDP单播之后决定使用单播来实现群聊邀请
 //     组播在跨子网时才会有优势，但本项目基于纯局域网p2p,所以现有架构来说UDP单播更有优势
+//     此群聊收发消息使用TCP全连接，群聊成员两两连接，发消息按照群成员IP依次发送
+//     因此，群聊模块为聊天模块的子模块
 
 #pragma once
 
 #include <QObject>
 
-#include <mutex>
-#include <vector>
+#include <sys/epoll.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <atomic>
 #include <unordered_map>
-#include <string>
+#include <thread>
+#include <mutex>
 
 #include "common.h"
+
+//群聊结构体
+struct GroupSession
+{
+    std::vector<UserInfo> members; //所有成员（包括自己）
+    std::unordered_map<std::string, int> fds; //memberId -> socket fd
+};
+
+class Chat;
 
 class GroupChat : public QObject
 {
@@ -24,9 +38,25 @@ public:
     explicit GroupChat(QObject *parent = nullptr);
     ~GroupChat();
 
+    void createGroup(const std::vector<UserInfo> &groupMembers); //创建群聊
+    void sendMsgToGroup(const std::string &groupId, const std::string &content); //发送群聊消息
+
+signals:
+    void groupMessageReceived(const QString &groupId, const QString &fromId,
+                              const QString &fromName, const QString &content);
+
 private:
+    static bool setNonBlocking(int fd);
+    void epollLoop();   //epoll事件循环
+    void addConnection(const std::string &groupId, const std::string &memberId, int fd);
+    void removeConnection(const std::string &groupId, const std::string &memberId, int fd);
+    int connectToMember(const std::string &ip);     //建立到指定IP的TCP连接
+
     mutable std::mutex m_mutex;
-    std::string m_localGroupId; //群ID
-    std::string m_localGroupName; //群名称（默认为用户名字拼接，可改）
-    std::unordered_map<std::string, std::vector<UserInfo>> m_groupMembers; //群号与群成员的映射
+    std::unordered_map<std::string, GroupSession> m_sessions; //群ID与群聊会话的映射
+    Chat *m_chat;
+
+    int m_epollFd = -1;
+    std::thread m_epollThread;
+    std::atomic<bool> m_running{false};
 };
