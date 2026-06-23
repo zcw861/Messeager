@@ -32,6 +32,9 @@
 //           分别保存当前私聊用户ID和当前群聊ID，避免两种ID混用
 //           进入私聊时清理当前群聊状态，进入群聊时清理当前私聊状态
 //           数据库查询失败时保留原有缓存，避免错误地清空界面数据
+//     [v0.1.10] HeZhiyuan    2026-06-23 17:23:35
+//         * 增加群聊创建与数据库持久化流程
+//           创建成功后刷新群聊列表并选中新群聊
 
 #include "appcontroller.h"
 
@@ -40,6 +43,8 @@
 #include <QFileInfo>
 #include <QSettings>
 
+#include <chrono>
+#include <vector>
 
 AppController::AppController(QObject *parent)
     : QObject(parent), m_chat(this), m_groupChat(&m_chat, this)
@@ -243,6 +248,184 @@ void AppController::clearGroupConversation()
         m_groupMessages.clear();
         emit groupMessagesChanged();
     }
+}
+
+//创建群聊，并同时建立网络和保存本地数据库记录
+QString AppController::createGroup(const QString &groupName, const QVariantList &members)
+{
+    //数据库和网络服务没有初始化时，不能创建群聊
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化，无法创建群聊"));
+        return {};
+    }
+
+    //群名称保存前去除首尾空白
+    const QString normalizedGroupName = groupName.trimmed();
+
+    if (normalizedGroupName.isEmpty()) {
+        reportError(QStringLiteral("群聊名称不能为空"));
+        return {};
+    }
+
+    //群聊至少需要三名成员
+    if (members.size() < 3) {
+        reportError(QStringLiteral("群聊成员不能少于三人"));
+        return {};
+    }
+
+    //网络层需要std::vector<UserInfo>
+    std::vector<UserInfo> networkMembers;
+
+    //提前预留空间，避免添加成员时多次重新分配
+    networkMembers.reserve(static_cast<std::size_t>(members.size()));
+
+    //数据库层需要QVariantList
+    //这里只保存DatabaseManager::createGroup()真正需要的字段：
+    //peerId和username
+    //IP不保存到group_members中，因为IP可能动态变化；
+    //群成员的永久身份应该使用peerId判断
+    QVariantList databaseMembers;
+    databaseMembers.reserve(members.size());
+
+    //用于检查成员ID是否重复
+    QSet<QString> memberIds;
+
+    //用于确认本机用户包含在群成员列表中
+    bool selfIncluded = false;
+
+    //统一取得数据库中持久化的ID
+    const QString localPeerId = m_chat.localId().trimmed();
+
+    //网络层启动以后保存的本机名称和局域网IP
+    const QString localName = m_chat.localName().trimmed();
+    const QString localIp = m_chat.localIp().trimmed();
+
+    //逐个转换QML传入的成员
+    for (const QVariant &item : members) {
+        //QML中的JS对象会自动转换为QVariantMap
+        const QVariantMap sourceMember = item.toMap();
+
+        //isSelf表示这一项是否为本机用户
+        const bool isSelf = sourceMember.value(QStringLiteral("isSelf")).toBool();
+
+        QString peerId;
+        QString username;
+        QString ip;
+        bool online = false;
+
+        if (isSelf) {
+            peerId = localPeerId;
+            username = localName;
+            ip = localIp;
+            online = true;
+
+            selfIncluded = true;
+        } else {
+            //普通成员使用QML选择列表传入的数据
+            peerId = sourceMember.value(QStringLiteral("peerId")).toString().trimmed();
+
+            username = sourceMember.value(QStringLiteral("username")).toString().trimmed();
+
+            ip = sourceMember.value(QStringLiteral("ip")).toString().trimmed();
+
+            online = sourceMember.value(QStringLiteral("online")).toBool();
+        }
+
+        //将peerId解析成UUID
+        const QUuid parsedPeerId = QUuid::fromString(peerId);
+
+        if (parsedPeerId.isNull()) {
+            reportError(QStringLiteral("群成员peerId无效：%1").arg(username.isEmpty()
+                                                              ? peerId : username));
+            return {};
+        }
+
+        //统一转换为不带大括号的UUID形式
+        peerId = parsedPeerId.toString(QUuid::WithoutBraces);
+        if (username.isEmpty()) {
+            reportError(QStringLiteral("群成员用户名不能为空"));
+            return {};
+        }
+
+        //当前网络层通过成员IP发送UDP邀请并建立TCP连接
+        if (!isSelf && !online) {
+            reportError( QStringLiteral("用户“%1”当前不在线，无法邀请进入群聊").arg(username));
+            return {};
+        }
+
+        if (ip.isEmpty()) {
+            reportError( QStringLiteral("群成员“%1”的IP地址为空").arg(username));
+            return {};
+        }
+
+        //检查重复成员
+        if (memberIds.contains(peerId)) {
+            reportError( QStringLiteral("群成员列表中存在重复用户：%1").arg(username));
+            return {};
+        }
+
+        memberIds.insert(peerId);
+
+        //构造网络层需要的UserInfo
+        UserInfo networkMember;
+
+        networkMember.id = peerId.toStdString();
+        networkMember.name = username.toStdString();
+        networkMember.ip = ip.toStdString();
+
+        //GroupChat当前主要使用id、name和ip，
+        //但仍初始化lastSeen，避免结构体中留下未初始化状态
+        networkMember.lastSeen = std::chrono::steady_clock::now();
+
+        networkMembers.push_back(networkMember);
+
+        //构造数据库层需要的成员对象
+        QVariantMap databaseMember;
+
+        databaseMember.insert( QStringLiteral("peerId"), peerId);
+
+        databaseMember.insert( QStringLiteral("username"), username);
+
+        databaseMembers.append(databaseMember);
+    }
+
+    //群聊即使有三名成员，如果其中不包含本机用户，也不能成为本机所属的有效群聊
+    if (!selfIncluded) {
+        reportError(QStringLiteral("群成员列表中没有包含本机用户"));
+        return {};
+    }
+
+    //再次按转换后的成员数检查
+    if (networkMembers.size() < 3) {
+        reportError(QStringLiteral("有效群成员不能少于三人"));
+        return {};
+    }
+
+    //交给网络层创建群聊
+    const QString groupId = m_groupChat.createGroup(networkMembers).trimmed();
+
+    if (groupId.isEmpty()) {
+        reportError(QStringLiteral("网络层创建群聊失败"));
+        return {};
+    }
+
+    //网络层成功生成groupId后，将群聊和全部成员写入数据库
+    //chat_groups和所有group_members要么全部成功，要么全部回滚，不会留下只有群信息、没有成员的残缺记录
+    if (!m_database.createGroup(groupId,
+                                normalizedGroupName,
+                                localPeerId,
+                                databaseMembers)) {
+        reportError( QStringLiteral("保存群聊失败：") + m_database.lastError());
+        return {};
+    }
+
+    //重新读取数据库群聊列表，refreshGroups()只在内容真正变化时发出groupsChanged
+    refreshGroups();
+
+    //新群聊创建完成后直接设为当前群聊
+    selectGroup(groupId);
+
+    return groupId;
 }
 
 //删除本地用户及其聊天记录，并同步清理控制器和QML状态

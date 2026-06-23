@@ -8,6 +8,9 @@
 //         *修改消息接收处理函数，增加发送者peerId参数
 //     [v0.1.3] ZhouChengWei    2026-06-22 11:29:12
 //         * 添加了获取本机IP的函数
+//     [v0.1.4] HeZhiyuan    2026-06-23 17:13:52
+//         * 新增：createGroup()
+//           接收群名称和群成员列表，并返回网络层生成的真实groupId
 #pragma once
 
 #include <QObject>
@@ -105,6 +108,10 @@ public:
     //退出当前群聊会话
     Q_INVOKABLE void clearGroupConversation();
 
+    //创建一个新的群聊
+    //成功时返回网络层生成的真实groupId
+    //失败时返回空字符串，并通过operationFailed信号报告原因
+    Q_INVOKABLE QString createGroup(const QString &groupName, const QVariantList &members);
 signals:
     void peersChanged();    //用户列表发生变化时发出，通知QML重新读取peers属性
     void messagesChanged();     //当前聊天消息列表发生变化时发出，通知QML刷新聊天列表
