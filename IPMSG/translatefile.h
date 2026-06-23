@@ -5,6 +5,8 @@
 //     用于传输文件
 //     [v0.1.1] ZhouChengWei    2026-06-14 15:49:32
 //         * 添加了部分函数用于文件传输
+//     [v0.1.2] ZhouChengWei    2026-06-23 14:05:08
+//         * 添加了处理发送的辅助函数
 
 #pragma once
 
@@ -88,6 +90,8 @@ private:
     void sendFileData(const std::string &ip, const std::string &filePath);
     //如果文件传输出现错误，发射错误信息
     void emitFileError(const std::string &ip, const std::string &fileName, bool success);
+    //处理发送的辅助函数
+    bool sendAll(int fd, const void *buf, size_t len);
 
     static bool setNonBlocking(int fd);     //设置文件描述符为非阻塞
     static int createEpoll(int fd, uint32_t events);    //EPOLL模式
