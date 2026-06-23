@@ -11,7 +11,14 @@
 //         * 实现搜索框搜索功能
 //     [v0.1.3]  JiangFan       2026-06-21
 //         * 重构：使用Layout管理主窗口结构
-
+//     [v0.1.4]  HeZhiyuan       2026-06-22
+//         * 重构：1.默认本机用户为群聊成员之一
+//                2.左侧点击用户后，在右侧显示
+//                3.少于三人无法创建群聊
+//           修改部分UI界面
+//     [v0.1.4]  HeZhiyuan       2026-06-22
+//         * 修改: 确定按钮的颜色与格式
+//           新增：生成模拟的群聊id，生成默认群名称，传递信号给PeerPanel
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -31,6 +38,12 @@ Window {
 
     //当前已经选中的总人数(包含自己)
     property int selectedCount: 0
+
+    //当满足人数要求并点击“确定”后，通过该信号把结果传递给PeerPanel.qml
+    //groupId：临时生成的群聊唯一标识
+    //groupName：根据成员名称生成的默认群名称
+    //members：由已选择成员组成的 JavaScript 数组
+    signal groupCreationConfirmed(string groupId, string groupName, var members)
 
     //是否已经满足创建群聊的条件。
     readonly property bool canCreateGroup: selectedCount >= minGroupMemberCount
@@ -53,7 +66,6 @@ Window {
     function recountSelectedUsers()
     {
         var count = 0
-
         //遍历候选成员中的每一项
         for (var row = 0; row < testPeerModel.count; row++) {
             //get(row)用于取得指定行的模型数据
@@ -63,7 +75,6 @@ Window {
             if (user.selected)
                 count++
         }
-
         //遍历完成后，一次性更新人数
         selectedCount = count
     }
@@ -82,8 +93,7 @@ Window {
         if (user.selected === selected)
             return
 
-        //只修改当前行的selected角色。
-        //左侧和右侧ListView都会变化
+        //修改当前行的selected角色，左侧和右侧ListView都会变化
         testPeerModel.setProperty(row, "selected", selected)
 
         //模型修改完成后重新统计人数
@@ -114,6 +124,31 @@ Window {
         }
 
         return members
+    }
+
+    //生成模拟的临时群ID
+    //Date.now() 返回当前时间的毫秒时间戳
+    function createTemporaryGroupId()
+    {
+        return "local-group-" + String(Date.now())
+    }
+
+    //根据已选择成员生成默认群名称
+    //members是collectSelectedMembers()返回的数组
+    //每个元素都包含username、peerId、ip等字段
+    function buildDefaultGroupName(members)
+    {
+        var memberNames = []
+        //依次取出每名成员的用户名
+        for (var index = 0; index < members.length; ++index) {
+            memberNames.push(members[index].username)
+        }
+
+        //join("、") 会用顿号连接所有用户名
+        var joinedNames = memberNames.join("、")
+
+        //在名称后面补充总人数
+        return joinedNames + "（" + members.length + "人）"
     }
 
     //恢复创建群聊窗口的初始状态
@@ -166,6 +201,7 @@ Window {
             ip: "192.168.1.1"
             online: true
             selected: false
+            isSelf: false
         }
 
         ListElement {
@@ -174,6 +210,7 @@ Window {
             ip: "192.168.1.2"
             online: true
             selected: false
+            isSelf: false
         }
 
         ListElement {
@@ -182,6 +219,7 @@ Window {
             ip: "192.168.1.3"
             online: false
             selected: false
+            isSelf: false
         }
     }
 
@@ -191,7 +229,6 @@ Window {
 
         RowLayout {
             id: mainLayout
-
             anchors.fill: parent
             spacing: 0
 
@@ -199,7 +236,7 @@ Window {
                 id: leftArea
 
                 Layout.fillHeight: true
-                Layout.preferredWidth: 220
+                Layout.preferredWidth: 200
                 spacing: 10
 
                 //搜索框
@@ -289,7 +326,7 @@ Window {
                                 height: parent.height
                                 spacing: 8
 
-                                // 左侧选中圆圈。
+                                //左侧选中圆圈
                                 Rectangle {
                                     Layout.preferredWidth: 20
                                     Layout.preferredHeight: 20
@@ -297,25 +334,23 @@ Window {
                                     Layout.alignment: Qt.AlignVCenter
 
                                     radius: 10
-                                    color: candidateRow.selected ? "#1296db" : "white"
+                                    color: candidateRow.selected ? "#029aff" : "white"
                                     border.width: 1
-                                    border.color: candidateRow.selected
-                                                  ? "#1296db"
-                                                  : "#d0d0d0"
+                                    border.color: candidateRow.selected ? "#029aff" : "#d0d0d0"
 
-                                    // 选中后显示对勾。
-                                    Text {
-                                        width: parent.width
-                                        height: parent.height
+                                    // // 选中后显示对勾。
+                                    // Text {
+                                    //     width: parent.width
+                                    //     height: parent.height
 
-                                        text: "✓"
-                                        visible: candidateRow.selected
-                                        color: "white"
-                                        font.pixelSize: 13
+                                    //     text: ""
+                                    //     visible: candidateRow.selected
+                                    //     color: "white"
+                                    //     font.pixelSize: 13
 
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
+                                    //     horizontalAlignment: Text.AlignHCenter
+                                    //     verticalAlignment: Text.AlignVCenter
+                                    // }
                                 }
 
                                 // 中间显示用户名和 IP。
@@ -346,11 +381,10 @@ Window {
                                     }
                                 }
 
-                                // 右侧显示在线状态。
+                                //右侧显示在线状态
                                 Text {
                                     Layout.rightMargin: 8
                                     Layout.alignment: Qt.AlignVCenter
-
                                     text: candidateRow.online ? "在线" : "离线"
                                     color: candidateRow.online ? "#43a047" : "#999999"
                                     font.pixelSize: 11
@@ -360,31 +394,27 @@ Window {
                             HoverHandler {
                                 id: candidateHover
 
-                                // 自己不可操作，因此使用普通箭头。
-                                // 其他成员可以选择，使用手形光标。
-                                cursorShape: candidateRow.isSelf
-                                             ? Qt.ArrowCursor
-                                             : Qt.PointingHandCursor
+                                //自己不可操作，因此使用普通箭头，其他成员可以选择，使用手形光标
+                                cursorShape: candidateRow.isSelf ? Qt.ArrowCursor : Qt.PointingHandCursor
                             }
 
                             TapHandler {
-                                // 自己不允许取消，因此直接禁用自己的 TapHandler。
+                                //自己不允许取消，直接禁用TapHandler
                                 enabled: !candidateRow.isSelf
-
                                 acceptedButtons: Qt.LeftButton
                                 gesturePolicy: TapHandler.ReleaseWithinBounds
-
                                 onTapped: {
-                                    // selected 为 true 时改为 false；
-                                    // selected 为 false 时改为 true。
+                                    //selected为true时改为false
+                                    //selected为false时改为true
                                     inviteUserInterface.setUserSelected(
-                                        candidateRow.index,
-                                        !candidateRow.selected
+                                                candidateRow.index,
+                                                !candidateRow.selected
                                     )
                                 }
                             }
                         }
 
+                        //垂直滚动条
                         ScrollBar.vertical: ScrollBar {
                             anchors.right: parent.right
                             width: 6
@@ -403,13 +433,11 @@ Window {
             ColumnLayout {
                 id: rightArea
 
-                // rightArea 是 mainLayout 的直接子项，
-                // 所以必须使用 Layout 附加属性，让外层 RowLayout 管理尺寸。
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: 0
 
-                // 右侧标题栏。
+                //右侧标题栏
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 56
@@ -424,7 +452,7 @@ Window {
                         font.bold: true
                     }
 
-                    // 弹性占位，把人数文字推向右边。
+                    //人数文字推向右边
                     Item {
                         Layout.fillWidth: true
                     }
@@ -439,14 +467,14 @@ Window {
                     }
                 }
 
-                // 标题栏下方分割线。
+                //标题栏下方分割线
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 1
                     color: "#eeeeee"
                 }
 
-                // 已选择成员列表。
+                //已选择成员列表
                 ListView {
                     id: selectedUserListView
 
@@ -458,7 +486,6 @@ Window {
                     clip: true
                     spacing: 0
 
-                    // 与左侧共用同一个模型。
                     model: testPeerModel
 
                     delegate: Rectangle {
@@ -473,8 +500,7 @@ Window {
 
                         width: ListView.view.width
 
-                        // 未选择成员的高度设置为 0，
-                        // 因此它不会在右侧占据可见空间。
+                        //未选择成员的高度设置为0，因此不会在右侧出现
                         height: selected ? 54 : 0
                         visible: selected
 
@@ -485,7 +511,7 @@ Window {
                             height: parent.height
                             spacing: 10
 
-                            // 简单模拟头像。
+                            //头像
                             Rectangle {
                                 Layout.preferredWidth: 34
                                 Layout.preferredHeight: 34
@@ -493,15 +519,13 @@ Window {
                                 Layout.alignment: Qt.AlignVCenter
 
                                 radius: 17
-                                color: selectedRow.isSelf
-                                       ? "#d8ecff"
-                                       : "#eeeeee"
+                                color: selectedRow.isSelf ? "#d8ecff" : "#eeeeee"
 
                                 Text {
                                     width: parent.width
                                     height: parent.height
 
-                                    // 取用户名第一个字符作为模拟头像文字。
+                                    //取用户名第一个字符作为头像文字
                                     text: selectedRow.username.length > 0
                                           ? selectedRow.username.charAt(0)
                                           : "?"
@@ -514,7 +538,7 @@ Window {
                                 }
                             }
 
-                            // 成员名称和 IP。
+                            //成员名称和IP
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignVCenter
@@ -541,7 +565,7 @@ Window {
                                 }
                             }
 
-                            // 自己显示为固定成员。
+                            //自己为固定成员
                             Text {
                                 visible: selectedRow.isSelf
 
@@ -553,7 +577,7 @@ Window {
                                 font.pixelSize: 11
                             }
 
-                            // 普通成员右侧显示删除按钮。
+                            //普通成员右侧有删除按钮
                             Rectangle {
                                 id: removeMemberButton
 
@@ -591,20 +615,15 @@ Window {
                                     gesturePolicy: TapHandler.ReleaseWithinBounds
 
                                     onTapped: {
-                                        // 将该成员的 selected 改为 false。
-                                        // 左侧圆圈和右侧列表会同时更新。
-                                        inviteUserInterface.setUserSelected(
-                                            selectedRow.index,
-                                            false
-                                        )
+                                        //将该成员的selected改为false
+                                        inviteUserInterface.setUserSelected( selectedRow.index, false)
                                     }
                                 }
                             }
                         }
                     }
                 }
-
-                // 人数不足时显示提示。
+                //人数不足时显示提示
                 Text {
                     Layout.fillWidth: true
                     Layout.leftMargin: 20
@@ -651,7 +670,7 @@ Window {
                         if (!inviteUserInterface.canCreateGroup) {
                             return "#e0e0e0"  //禁用状态的颜色
                         } else {
-                            return okButtonHover.hovered ? "#00ffff" : "#87cefa"
+                            return okButtonHover.hovered ? "#87cefa" : "#029aff"
                             }
                         }
 
@@ -661,38 +680,39 @@ Window {
                         Text{
                             anchors.centerIn: parent
                             text: "确定"
-                            color: inviteUserInterface.canCreateGroup ? "blue" : "#999999"
+                            color: inviteUserInterface.canCreateGroup ? "white" : "#999999"
                         }
 
                         HoverHandler {
                             id: okButtonHover
                         //根据是否选择用户改变鼠标形状
-                            cursorShape: inviteUserInterface.canCreateGroup ? Qt.PointingHandCursor : Qt.ForbiddenCursor
+                            cursorShape: inviteUserInterface.canCreateGroup
+                                         ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                         }
 
                         TapHandler {
-                            // 人数不足时整个 TapHandler 被禁用，
-                            // 因此点击按钮不会执行任何创建操作。
+                            //人数不足时整个TapHandler禁用
                             enabled: inviteUserInterface.canCreateGroup
 
                             acceptedButtons: Qt.LeftButton
                             gesturePolicy: TapHandler.ReleaseWithinBounds
 
                             onTapped: {
-                                // 即使 TapHandler 已经通过 enabled 禁用，
-                                // 这里仍然再次检查，避免后续修改代码时绕过限制。
+                                //人数不足时不能创建群聊
                                 if (!inviteUserInterface.canCreateGroup)
                                     return
-
-                                // 收集当前所有已选择成员。
+                                //收集当前所有已选择成员
                                 var members = inviteUserInterface.collectSelectedMembers()
 
-                                // 目前没有连接后端，所以先通过控制台验证。
-                                console.log("模拟创建群聊")
-                                console.log("群聊成员数量:", members.length)
-                                console.log("群聊成员:", JSON.stringify(members))
+                                //生成当前临时群ID
+                                var groupId = inviteUserInterface.createTemporaryGroupId()
 
-                                // 模拟创建完成后关闭窗口。
+                                //根据成员用户名生成默认群名称
+                                var groupName = inviteUserInterface.buildDefaultGroupName(members)
+                                // 向外发出创建结果
+                                // InviteUserInterface不直接修改 PeerPanel，由PeerPanel自己决定如何处理这些数据
+                                inviteUserInterface.groupCreationConfirmed( groupId, groupName, members )
+                                // 信号发出后关闭创建群聊窗口。
                                 inviteUserInterface.close()
                             }
                         }
