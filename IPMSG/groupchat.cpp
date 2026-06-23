@@ -5,6 +5,8 @@
 //     群聊功能函数实现（EPOLL）
 //     [v0.1.1] ZhouChengWei    2026-06-23 12:03:49
 //         * 实现了一系列基础的群聊函数（连接成员，发送群消息，创建群聊)
+//     [v0.1.2] ZhouChengWei    2026-06-23 13:23:06
+//         * 添加了清理函数，以及接收函数
 
 #include "groupchat.h"
 #include "chat.h"
@@ -17,11 +19,37 @@
 
 #define MAX_EVENTS 64   //EPOLL事件最大数量
 
-GroupChat::GroupChat(QObject *parent)
-    : QObject(parent)
-{}
+GroupChat::GroupChat(Chat *chat, QObject *parent)
+    : m_chat(chat), QObject(parent){}
 
-GroupChat::~GroupChat(){}
+GroupChat::~GroupChat()
+{
+    m_running = false;
+
+    //关闭epoll实例，立即唤醒 epoll_wait（避免它无限阻塞）
+    //同时保证后续join前epollFd已失效，线程能够快速退出。
+    if (m_epollFd != -1) {
+        close(m_epollFd);
+        m_epollFd = -1;
+    }
+
+    //等待epoll事件循环线程结束
+    if (m_epollThread.joinable()) {
+        m_epollThread.join();
+    }
+
+    //关闭所有活跃的群成员TCP连接
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto &[groupId, session] : m_sessions) {
+            for (auto &[memberId, fd] : session.fds) {
+                close(fd);
+            }
+        }
+        m_sessions.clear();
+        m_fdInfo.clear();
+    }
+}
 
 void GroupChat::createGroup(const std::vector<UserInfo> &groupMembers)
 {
@@ -102,6 +130,7 @@ void GroupChat::addConnection(const std::string &groupId, const std::string &mem
     std::lock_guard<std::mutex> lock(m_mutex);
     auto &session = m_sessions[groupId];
     session.fds[memberId] = fd;
+    m_fdInfo[fd] = {groupId, memberId};
 }
 
 void GroupChat::epollLoop()
@@ -120,11 +149,21 @@ void GroupChat::epollLoop()
             uint32_t revents = events[i].events;
 
             //连接成功或出错
-            if (revents & (EPOLLERR | EPOLLHUP)) { continue; }
+            if (revents & (EPOLLERR | EPOLLHUP)) {
+                cleanupFd(fd);
+                continue;
+            }
 
             //连接建立
             if (revents & EPOLLOUT) {
-                //取消监听EPOLLOUT,监听EPOLLIN
+                int error = 0;
+                socklen_t len = sizeof(error);
+                if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error != 0) {
+                    //连接失败，清理
+                    cleanupFd(fd);
+                    continue;
+                }
+                // 连接成功，改为监听可读
                 struct epoll_event mod_ev;
                 mod_ev.events = EPOLLIN | EPOLLET;
                 mod_ev.data.fd = fd;
@@ -133,15 +172,26 @@ void GroupChat::epollLoop()
 
             //有消息可读
             if (revents & EPOLLIN) {
-                uint8_t type; //消息类型
-                if (recv(fd, &type, 1, MSG_WAITALL) != -1) { continue; }
+                uint8_t type;
+                if (recvFull(fd, &type, 1) != 1) {
+                    cleanupFd(fd);
+                    continue;
+                }
 
-                uint32_t payloadLen = 0; //网络字节序(载荷长度)
-                if (recv(fd, &payloadLen, 4, MSG_WAITALL) != -1) continue;
+                //读长度
+                uint32_t payloadLen = 0;
+                if (recvFull(fd, &payloadLen, 4) != 4) {
+                    cleanupFd(fd);
+                    continue;
+                }
                 payloadLen = ntohl(payloadLen);
 
-                std::vector<char> buf;
-                if (recv(fd, buf.data(), payloadLen, MSG_WAITALL) != (int) payloadLen) continue;
+                //读数据
+                std::vector<char> buf(payloadLen);
+                if (recvFull(fd, buf.data(), payloadLen) != (int) payloadLen) {
+                    cleanupFd(fd);
+                    continue;
+                }
 
                 if (type == MSG_TYPE_TCP_GROUP) {
                     MsgData msg = deserializeMsgData(buf.data(), payloadLen);
@@ -177,10 +227,49 @@ void GroupChat::sendMsgToGroup(const std::string &groupId, const std::string &co
 
     for (auto &[memberId, fd] : session.fds) {
         if (memberId == m_chat->localId().toStdString()) continue;
-        send(fd, packet.data(), packet.size(), MSG_NOSIGNAL);
+        size_t total = 0;
+        while (total < packet.size()) {
+            ssize_t n = send(fd, packet.data() + total, packet.size() - total, MSG_NOSIGNAL);
+            if (n < 0) {
+                if (errno == EINTR) {   //信号中断，重试
+                    continue;
+                }
+                break;
+            }
+            total += n;
+        }
     }
 }
 
-void GroupChat::removeConnection(const std::string &groupId, const std::string &memberId, int fd){
+void GroupChat::cleanupFd(int fd) {
+    auto info = m_fdInfo.find(fd);
+    if (info != m_fdInfo.end()) {
+        std::string groupId = info->second.first;
+        std::string memberId = info->second.second;
+        epoll_ctl(m_epollFd, EPOLL_CTL_DEL, fd, nullptr);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            auto it = m_sessions.find(groupId);
+            if (it != m_sessions.end()) {
+                it->second.fds.erase(memberId);
+            }
+        }
+        m_fdInfo.erase(info);
+    }
+    close(fd);
+}
 
+int GroupChat::recvFull(int fd, void* buf, size_t len) {
+    size_t total = 0;
+    while (total < len) {
+        ssize_t n = recv(fd, (char*)buf + total, len - total, 0);
+        if (n > 0) {
+            total += n;
+        } else if (n == 0) {
+            return 0; //对端关闭
+        } else if (errno != EINTR) {
+            return -1; //错误
+        }
+    }
+    return total;
 }
