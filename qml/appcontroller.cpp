@@ -23,6 +23,15 @@
 //         * 把原来的按照IP发送消息改为ID,判断自己发送的消息也改为ID判断
 //     [v0.1.8] ZhouChengWei    2026-06-22 11:29:12
 //         * 添加了获取本机IP的函数
+//     [v0.1.9] HeZhiyuan    2026-06-23 16:34:42
+//         * 增加群聊数据库读取与会话状态管理功能
+//           在AppController中增加群聊列表、群成员列表和群消息列表属性
+//           程序初始化数据库成功后读取已经持久化的群聊列表
+//           选择群聊时从数据库加载对应的群成员和历史消息
+//           增加选择群聊和清理当前群聊会话的接口
+//           分别保存当前私聊用户ID和当前群聊ID，避免两种ID混用
+//           进入私聊时清理当前群聊状态，进入群聊时清理当前私聊状态
+//           数据库查询失败时保留原有缓存，避免错误地清空界面数据
 
 #include "appcontroller.h"
 
@@ -72,6 +81,24 @@ QVariantList AppController::peers() const
 QVariantList AppController::messages() const
 {
     return m_messages;
+}
+
+//返回已经加载到控制器中的群聊列表缓存
+QVariantList AppController::groups() const
+{
+    return m_groups;
+}
+
+//返回当前选中群聊的成员缓存
+QVariantList AppController::groupMembers() const
+{
+    return m_groupMembers;
+}
+
+//返回当前选中群聊的历史消息缓存
+QVariantList AppController::groupMessages() const
+{
+    return m_groupMessages;
 }
 
 QString AppController::lastError() const
@@ -130,10 +157,13 @@ bool AppController::initialize(const QString &userName)
         return false;
     }
 
-    //网络服务启动前先读取本地历史用户，使界面可以立即显示离线用户
+    //网络服务启动前先读取本地历史用户，使界面可以立即显示以前保存的在线或离线用户
     refreshPeers();
 
-    //启动局域网消息服务
+    //网络服务启动前读取数据库中已经持久化的群聊
+    refreshGroups();
+
+    //完成本地数据恢复后再启动局域网消息服务
     m_chat.start(normalizedName);
 
     //启动文件传输线程
@@ -150,10 +180,16 @@ bool AppController::initialize(const QString &userName)
     return true;
 }
 
-//更新当前聊天用户，并从数据库加载其历史消息
+//选择私聊对象并加载对应聊天记录
 void AppController::selectPeer(const QString &peerId)
 {
+    //进入私聊前先退出当前群聊，这样界面不会同时保留一份私聊消息和一份群聊消息
+    if (!m_currentGroupId.isEmpty()) { clearGroupConversation();}
+
+    //统一去除ID首尾空白
     m_currentPeerId = peerId.trimmed();
+
+    //根据新的peerId重新读取私聊历史记录
     refreshMessages();
 }
 
@@ -166,6 +202,46 @@ void AppController::clearConversation()
     if (!m_messages.isEmpty()) {
         m_messages.clear();
         emit messagesChanged();
+    }
+}
+
+//选择群聊并读取群成员及群聊历史消息
+void AppController::selectGroup(const QString &groupId)
+{
+    const QString normalizedGroupId = groupId.trimmed();
+
+    //空群ID不能对应有效群聊
+    if (normalizedGroupId.isEmpty()) {
+        reportError(QStringLiteral("要选择的群聊ID为空"));
+        return;
+    }
+
+    //进入群聊前先退出当前私聊
+    if (!m_currentPeerId.isEmpty()) { clearConversation();}
+
+    //记录当前群聊ID，后续刷新成员和消息时都使用这个ID
+    m_currentGroupId = normalizedGroupId;
+
+    //成员列表与消息列表必须属于同一个当前群聊
+    refreshGroupMembers();
+    refreshGroupMessages();
+}
+
+//关闭当前群聊
+void AppController::clearGroupConversation()
+{
+    //清除当前群聊选择
+    m_currentGroupId.clear();
+
+    //只有数据确实发生变化时才发出信号
+    if (!m_groupMembers.isEmpty()) {
+        m_groupMembers.clear();
+        emit groupMembersChanged();
+    }
+
+    if (!m_groupMessages.isEmpty()) {
+        m_groupMessages.clear();
+        emit groupMessagesChanged();
     }
 }
 
@@ -502,6 +578,69 @@ void AppController::refreshMessages()
 
     m_messages = loadedMessages;
     emit messagesChanged();
+}
+
+//从数据库读取全部群聊
+void AppController::refreshGroups()
+{
+    //DatabaseManager::loadGroups()会按照updated_at倒序返回群聊，最近产生消息的群聊会排在前面
+    const QVariantList loadedGroups = m_database.loadGroups();
+
+    //loadGroups()在执行前会清空旧错误
+    if (!m_database.lastError().isEmpty()) {
+        reportError(QStringLiteral("读取群聊列表失败：") + m_database.lastError());
+        return;
+    }
+
+    //数据库内容没有变化时不发信号
+    if (loadedGroups == m_groups) { return;}
+
+    m_groups = loadedGroups;
+    emit groupsChanged();
+}
+
+//读取当前选中群聊的成员列表
+void AppController::refreshGroupMembers()
+{
+    QVariantList loadedMembers;
+
+    //没有选中群聊时保持空列表
+    if (!m_currentGroupId.isEmpty()) {
+        loadedMembers = m_database.loadGroupMembers(m_currentGroupId);
+
+        //发生查询错误时保留原成员缓存。
+        if (!m_database.lastError().isEmpty()) {
+            reportError(QStringLiteral("读取群成员失败：") + m_database.lastError());
+            return;
+        }
+    }
+
+    if (loadedMembers == m_groupMembers) { return;}
+
+    m_groupMembers = loadedMembers;
+    emit groupMembersChanged();
+}
+
+//读取当前选中群聊的历史消息
+void AppController::refreshGroupMessages()
+{
+    QVariantList loadedMessages;
+
+    //没有选中群聊时使用空列表清理界面
+    if (!m_currentGroupId.isEmpty()) {
+        loadedMessages = m_database.loadGroupMessages(m_currentGroupId);
+
+        //查询失败时保留原有消息
+        if (!m_database.lastError().isEmpty()) {
+            reportError(QStringLiteral("读取群聊历史消息失败：") + m_database.lastError());
+            return;
+        }
+    }
+
+    if (loadedMessages == m_groupMessages) { return;}
+
+    m_groupMessages = loadedMessages;
+    emit groupMessagesChanged();
 }
 
 //统一保存错误并发出属性变化和业务失败信号
