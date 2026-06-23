@@ -33,7 +33,8 @@
 //         * 增加顶部的、自己的菜单栏
 //     [v0.2.0] JiangFan    2026-06-22
 //         * 对整个窗口添加拖拽、放大、缩小，拉伸等功能，增加登录界面，可以一开始自定义名字
-//
+//     [v0.2.1] JiangFan    2026-06-23
+//         * 增加群聊的右侧用户列表
 
 import QtQuick
 import QtQuick.Controls
@@ -73,6 +74,7 @@ ApplicationWindow {
    property string currentGroupId: ""
    property string currentGroupName: ""
    property bool currentIsGroup: false //当前会话是否为群聊
+   property bool currentIsShrink: false //当前右侧用户列表是否收缩
 
    //当前待处理的文件接收请求
    property string pendingFileIp: ""
@@ -521,7 +523,6 @@ ApplicationWindow {
                           }
 
                           TapHandler {
-
                              onTapped: {
                                 root.showMinimized()
                              }
@@ -634,6 +635,7 @@ ApplicationWindow {
                              root.currentGroupId = ""
                              root.currentGroupName = ""
                              root.currentIsGroup = false
+                             root.currentIsShrink = false
                              groupMemberModel.clear()
 
                              //保存当前会话所需的用户信息
@@ -747,11 +749,16 @@ ApplicationWindow {
                                       Layout.topMargin: 50 //这个数值跟ChatPanel.qml的顶部栏高度一致
                                       Layout.fillHeight: true
 
-                                      visible: root.currentIsGroup
+                                      visible: root.currentIsGroup && !root.currentIsShrink
 
                                       color: "#FAFAFA"
                                       border.color: "#e0e0e0"
                                       border.width: 1
+
+                                      //目前用来隐藏、显示收缩按钮
+                                      HoverHandler {
+                                          id: groupMemberHover
+                                      }
 
                                       ColumnLayout {
                                           anchors.fill: parent
@@ -874,6 +881,45 @@ ApplicationWindow {
                                       }
                                    }
                                 }
+
+                                //群聊右侧用户列表收缩按钮
+                                Rectangle {
+                                   id: shrinkButton
+
+                                   color: shrinkButtonHover.hovered ? "#F2F3F5" : "#FFFFFF"
+
+                                   visible: currentIsGroup && root.currentGroupId !== ""
+                                            && (groupMemberHover.hovered || shrinkButtonHover.hovered || root.currentIsShrink)
+                                                   //不加按钮的这个悬浮的话，准备点击的时候回瞬间消失 OvO
+
+                                   height: 30
+                                   width: 15
+                                   z:2
+                                   anchors.verticalCenter: parent.verticalCenter
+                                   anchors.right: parent.right
+                                   anchors.rightMargin: root.currentIsShrink ? 2 : 150
+
+                                   border.color: "#E0E0E0"
+                                   border.width: 1
+
+                                   Text {
+                                      anchors.centerIn: parent
+                                      text: currentIsShrink ? "<" : ">"
+                                      font.pixelSize: 20
+                                   }
+
+                                   HoverHandler {
+                                      id: shrinkButtonHover
+                                      cursorShape: Qt.PointingHandCursor
+                                   }
+
+                                   TapHandler {
+                                      onTapped: {
+                                          root.currentIsShrink = !currentIsShrink
+                                      }
+                                   }
+                                }
+
                              }
 
                              //底部输入框：点击左侧用户后才显示
