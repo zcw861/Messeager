@@ -8,8 +8,8 @@ find_package(Threads REQUIRED)
 qt_standard_project_setup()
 
 add_library(IPMSG STATIC
-    privatechat.h
-    privatechat.cpp
+    chat.h
+    chat.cpp
     translatefile.h
     translatefile.cpp
 )
@@ -17,7 +17,9 @@ add_library(IPMSG STATIC
 qt_add_qml_module(IPMSG
     URI "se.qt.ipmsg"
     VERSION 1.0
-    SOURCES  privatechat.h privatechat.cpp
+    SOURCES  chat.h chat.cpp
+    SOURCES groupchat.h groupchat.cpp
+    SOURCES common.h
 
 )
 

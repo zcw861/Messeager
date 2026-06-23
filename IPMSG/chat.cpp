@@ -1,8 +1,8 @@
 // Module
-// File: privatechat.cpp   Version: 0.1.0   License: AGPLv3
+// File: Chat.cpp   Version: 0.1.0   License: AGPLv3
 // Created:  ZhouChengWei     2026-06-09 19:30:06
 // Description:
-//      见privatechat.h文件的描述，本实现的广播，接收广播以及收发消息各一个线程
+//      见Chat.h文件的描述，本实现的广播，接收广播以及收发消息各一个线程
 //     [v0.1.1]  ZhouChengWei   2026-06-11 08:39:46
 //         * 添加了错误处理
 //     [v0.1.2]  ZhouChengWei   2026-06-11 21:39:59
@@ -22,7 +22,7 @@
 //     [v0.2.2] ZhouChengWei    2026-06-22 22:25:51
 //         * 把收发消息全部重构为MsgData（见common.h)类型，以便区分消息类型，为群聊做准备
 
-#include "privatechat.h"
+#include "chat.h"
 
 #include <iostream>
 #include <cstring>
@@ -33,13 +33,13 @@
 #include <unistd.h>
 #include <netdb.h>
 
-PrivateChat::PrivateChat(QObject *parent)
+Chat::Chat(QObject *parent)
     : QObject(parent)
 {
     m_localId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
 }
 
-PrivateChat::~PrivateChat()
+Chat::~Chat()
 {
     m_running = false;
 
@@ -68,7 +68,7 @@ PrivateChat::~PrivateChat()
 
 
 //在网络服务启动前设置本机永久UUID。
-bool PrivateChat::setLocalId(const QString &localId)
+bool Chat::setLocalId(const QString &localId)
 {
     //网络线程启动后不能再修改本机ID。
     if(m_running){
@@ -90,7 +90,7 @@ bool PrivateChat::setLocalId(const QString &localId)
     return true;
 }
 
-QVariantList PrivateChat::onlineUsers() const
+QVariantList Chat::onlineUsers() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);  //保护m_peers同时只能被一个线程访问
     //添加当前在线用户
@@ -105,7 +105,7 @@ QVariantList PrivateChat::onlineUsers() const
     return list;
 }
 
-void PrivateChat::start(const QString &userName)
+void Chat::start(const QString &userName)
 {
     if(m_running) return;  //防止重复启动
 
@@ -138,15 +138,15 @@ void PrivateChat::start(const QString &userName)
     m_running = true;
 
     //启动四个工作线程
-    m_broadcastThread = std::thread(&PrivateChat::broadcastThread, this);
-    m_listenThread = std::thread(&PrivateChat::listenThread, this);
-    m_serverThread = std::thread(&PrivateChat::tcpServerThread, this);
-    m_cleanThread = std::thread(&PrivateChat::cleanOfflineThread, this);
+    m_broadcastThread = std::thread(&Chat::broadcastThread, this);
+    m_listenThread = std::thread(&Chat::listenThread, this);
+    m_serverThread = std::thread(&Chat::tcpServerThread, this);
+    m_cleanThread = std::thread(&Chat::cleanOfflineThread, this);
 
     std::cout << "信使聊天服务已启动，用户: " << m_localName << std::endl;
 }
 
-void PrivateChat::sendMessageToUser(const QString &id, const QString &msg)
+void Chat::sendMessageToUser(const QString &id, const QString &msg)
 {
     std::string idStr = id.toStdString();
     std::string msgStr = msg.toStdString();
@@ -213,7 +213,7 @@ void PrivateChat::sendMessageToUser(const QString &id, const QString &msg)
     }).detach();
 }
 
-void PrivateChat::emitMessageReceived(const std::string &id,
+void Chat::emitMessageReceived(const std::string &id,
                                       const std::string &name,
                                       const std::string &ip,
                                       const std::string &msg)
@@ -229,7 +229,7 @@ void PrivateChat::emitMessageReceived(const std::string &id,
     }, Qt::QueuedConnection);
 }
 
-void PrivateChat::broadcastThread()
+void Chat::broadcastThread()
 {
     int listenfd = socket(PF_INET, SOCK_DGRAM, 0);
     if(listenfd < 0) {
@@ -262,7 +262,7 @@ void PrivateChat::broadcastThread()
     std::cout << "UDP广播线程已退出" << std::endl;
 }
 
-void PrivateChat::listenThread()
+void Chat::listenThread()
 {
     int listenfd = socket(PF_INET, SOCK_DGRAM, 0);
     m_udp_listenFd = listenfd;
@@ -330,7 +330,7 @@ void PrivateChat::listenThread()
     std::cout << "UDP监听线程已退出" << std::endl;
 }
 
-void PrivateChat::tcpServerThread()
+void Chat::tcpServerThread()
 {
     int serverfd = socket(PF_INET, SOCK_STREAM, 0);
     m_tcp_serverFd = serverfd;
@@ -413,8 +413,7 @@ void PrivateChat::tcpServerThread()
     std::cout << "TCP服务器线程已退出" << std::endl;
 }
 
-void PrivateChat::cleanOfflineThread(){
-
+void Chat::cleanOfflineThread(){
     constexpr auto timeout = std::chrono::seconds(10); //超过10秒未收到广播视为离线
     while(m_running) {
         std::this_thread::sleep_for(std::chrono::seconds(5)); //每5秒检查一次
@@ -440,10 +439,14 @@ void PrivateChat::cleanOfflineThread(){
     }
 }
 
-QString PrivateChat::localIp() const {
+QString Chat::localIp() const {
     return QString::fromStdString(m_localIp);
 }
 
-QString PrivateChat::localId() const {
+QString Chat::localId() const {
     return QString::fromStdString(m_localId);
+}
+
+QString Chat::localName() const{
+    QString::fromStdString(m_localName);
 }

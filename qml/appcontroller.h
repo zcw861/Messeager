@@ -18,7 +18,7 @@
 #include <QtQml/qqmlregistration.h>
 
 #include "databasemanager.h"
-#include "privatechat.h"
+#include "chat.h"
 #include "translatefile.h"
 
 class AppController : public QObject
@@ -105,7 +105,7 @@ private:
 
 private:
     DatabaseManager m_database; //本地SQLite数据库管理对象
-    PrivateChat m_privateChat;  //局域网用户发现和消息收发对象
+    Chat m_chat;  //局域网用户发现和消息收发对象
 
     TranslateFile m_translateFile; //文件传输后端对象
 

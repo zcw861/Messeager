@@ -1,4 +1,4 @@
-//         *连接PrivateChat在线用户变化和消息接收信号。
+//         *连接Chat在线用户变化和消息接收信号。
 //          初始化 SQLite 数据库和网络服务。
 //          将网络用户同步到数据库。
 //          发送消息后保存本地聊天记录。
@@ -11,7 +11,7 @@
 //         * 处理了因为给自己发送消息而接收导致显示2次的问题
 //     [v0.1.5] HeZhiyuan    2026-06-18 19:23:35
 //         * 在初始化数据库后读取或创建本机永久peerId
-//           在PrivateChat网络线程启动前，将持久化peerId设置到网络层
+//           在Chat网络线程启动前，将持久化peerId设置到网络层
 //           在线用户同步时使用网络层提供的UUID作为数据库peer_id
 //           IP不作为用户唯一标识
 //           接收消息时使用发送者的peerId保存用户信息和聊天记录
@@ -36,10 +36,10 @@ AppController::AppController(QObject *parent)
     : QObject(parent)
 {
     //在线用户列表发生变化,AppController执行数据库同步
-    connect(&m_privateChat, &PrivateChat::onlineUsersChanged, this, &AppController::synchronizeOnlineUsers);
+    connect(&m_chat, &Chat::onlineUsersChanged, this, &AppController::synchronizeOnlineUsers);
 
     //收到聊天消息
-    connect(&m_privateChat, &PrivateChat::messageReceived, this, &AppController::handleMessageReceived);
+    connect(&m_chat, &Chat::messageReceived, this, &AppController::handleMessageReceived);
 
     //收到文件请求
     connect(&m_translateFile, &TranslateFile::fileRequestReceived, this, &AppController::fileRequestReceived
@@ -114,14 +114,14 @@ bool AppController::initialize(const QString &userName)
     //本次运行临时生成的候选UUID
     //第一次运行：数据库中没有本机ID，将该候选UUID保存到local_peer_id表
     //后续运行：数据库中已经有本机ID，忽略本次新生成的候选UUID，并把以前保存的id返回到persistentLocalPeerId
-    if (!m_database.loadOrCreateLocalPeerId(m_privateChat.localId(), persistentLocalPeerId)) {
+    if (!m_database.loadOrCreateLocalPeerId(m_chat.localId(), persistentLocalPeerId)) {
         reportError( QStringLiteral("初始化本机永久ID失败：") + m_database.lastError());
         return false;
     }
 
     //须在网络层启动之前，把数据库中的永久ID设置回网络层，
     //如果在start之后设置，UDP广播线程可能已经使用临时UUID，造成同一次运行中出现两个身份
-    if (!m_privateChat.setLocalId(persistentLocalPeerId)) {
+    if (!m_chat.setLocalId(persistentLocalPeerId)) {
         reportError(QStringLiteral("设置网络层本机永久ID失败"));
         return false;
     }
@@ -130,7 +130,7 @@ bool AppController::initialize(const QString &userName)
     refreshPeers();
 
     //启动局域网消息服务
-    m_privateChat.start(normalizedName);
+    m_chat.start(normalizedName);
 
     //启动文件传输线程
     m_translateFile.start();
@@ -204,7 +204,7 @@ bool AppController::deletePeer(const QString &peerId)
 
 QString AppController::localIp()
 {
-    return m_privateChat.localIp();
+    return m_chat.localIp();
 }
 
 //校验聊天对象和消息内容，通过网络层发送消息，并将本机发送记录保存到数据库
@@ -241,7 +241,7 @@ void AppController::sendMessage(const QString &peerId,
     }
 
     //如果目标是自己，直接本地保存，不经过网络
-    if (normalizedPeerId == m_privateChat.localId()) {
+    if (normalizedPeerId == m_chat.localId()) {
         if (!m_database.saveMessage(normalizedPeerId, true, normalizedContent)) {
             reportError(QStringLiteral("保存消息失败：") + m_database.lastError());
             return;
@@ -253,7 +253,7 @@ void AppController::sendMessage(const QString &peerId,
     }
 
     //当前网络接口是异步发送，调用返回表示消息已交给发送线程，暂时不代表对方一定已经收到。
-    m_privateChat.sendMessageToUser(normalizedPeerId, normalizedContent);
+    m_chat.sendMessageToUser(normalizedPeerId, normalizedContent);
 
     //网络发送请求提交后保存本地历史记录
     if (!m_database.saveMessage(normalizedPeerId, true, normalizedContent)) {
@@ -391,14 +391,14 @@ void AppController::rejectFile(const QString &ip)
             << "fromIp =" << normalizedIp;
 }
 
-//将PrivateChat的网络用户数据转换成数据库层需要的数据结构，然后调用DatabaseManager完成事务同步
+//将Chat的网络用户数据转换成数据库层需要的数据结构，然后调用DatabaseManager完成事务同步
 void AppController::synchronizeOnlineUsers()
 {
     //使用数据库层约定的字段名保存用户数据
     QVariantList normalizedPeers;
 
     //onlineUsers的原始字段由网络层提供，主要包含name和ip
-    const QVariantList onlineUsers = m_privateChat.onlineUsers();
+    const QVariantList onlineUsers = m_chat.onlineUsers();
 
     for (const QVariant &item : onlineUsers) {
         //将每一个网络用户转换为QVariantMap
@@ -440,7 +440,7 @@ void AppController::handleMessageReceived( const QString &fromId,
                                            const QString &message)
 {
     //忽略来源IP为本机的消息，避免本机消息被重复保存和显示。
-    if (fromIp == m_privateChat.localIp()) {
+    if (fromIp == m_chat.localIp()) {
         return;
     }
 
@@ -451,7 +451,7 @@ void AppController::handleMessageReceived( const QString &fromId,
     const QString normalizedMessage = message.trimmed();
 
     //按照ID判断消息是否来自本机
-    if (!normalizedPeerId.isEmpty()&& normalizedPeerId == m_privateChat.localId()) { return;}
+    if (!normalizedPeerId.isEmpty()&& normalizedPeerId == m_chat.localId()) { return;}
 
     //ip和消息正文是保存消息所必需的数据
     if (normalizedPeerId.isEmpty() || normalizedIp.isEmpty() || normalizedMessage.isEmpty()) { return;}

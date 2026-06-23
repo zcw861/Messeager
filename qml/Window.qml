@@ -56,7 +56,7 @@ ApplicationWindow {
    visible: true
 
    title: "Messager 信使"
-   flags: Qt.Window | Qt.FramelessWindowHint //隐藏顶部默认菜单栏，但是需要自己实现窗口缩放（暂时还没有实现）
+   //flags: Qt.Window | Qt.FramelessWindowHint //隐藏顶部默认菜单栏，但是需要自己实现窗口缩放（暂时还没有实现）
 
    property bool isLogin: false //登录状态
 
