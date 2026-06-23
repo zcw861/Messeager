@@ -100,6 +100,25 @@ Window {
         recountSelectedUsers()
     }
 
+    //获取当前已选中的用户列表
+    function selectedMembers() {
+        var members = []
+
+        for (var i = 0; i < testPeerModel.count; i++)
+            var user = testPeerModel.get(i)
+
+        if (user.selected) {
+            members.push({
+                peerId: user.peerId,
+                username: user.username,
+                ip: user.ip,
+                online: user.online
+            })
+        }
+
+        return members
+    }
+
     //把当前所有已选择的成员整理成一个js数组
     //后续连接AppController时，可以直接把这个数组传给AppController
     function collectSelectedMembers()
@@ -188,7 +207,7 @@ Window {
 
         ListElement {
             peerId: "self"
-            username: "当前用户"
+            username: "me"
             ip: "192.168.1.100"
             online: true
             selected: true
