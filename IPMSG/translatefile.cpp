@@ -7,6 +7,8 @@
 //         * 实现传输文件的函数
 //     [v0.1.2] ZhouChengWei    2026-06-18 15:12:58
 //         * 修改了部分代码格式
+//     [v0.1.3] ZhouChengWei    2026-06-23 14:03:51
+//         * 修复了因为覆盖压缩包文件导致数据丢失的bug（使用临时文件存储再覆盖解决）
 
 #include "translatefile.h"
 #include "common.h"
@@ -287,7 +289,7 @@ void TranslateFile::acceptFile(const QString &ip, const QString &savePath)
         FileAck ack;
         ack.type = MSG_TYPE_TCP_FILE_ACK;
         ack.accept = 1;
-        send(clientfd, &ack, sizeof(ack), 0);
+        sendAll(clientfd, &ack, sizeof(ack));
 
         //接收文件数据
         receiveFileData(clientfd, ipStr, savePathStr, fileName, fileSize);
@@ -319,7 +321,7 @@ void TranslateFile::rejectFile(const QString &ip)
     FileAck ack;
     ack.type = MSG_TYPE_TCP_FILE_ACK;
     ack.accept = 0;
-    send(clientfd, &ack, sizeof(ack), 0);
+    sendAll(clientfd, &ack, sizeof(ack));
     close(clientfd);
 }
 
@@ -328,9 +330,23 @@ void TranslateFile::receiveFileData(int clientfd, const std::string &ip,
                                     const std::string &fileName,
                                     uint64_t fileSize)
 {
-    QFile file(QString::fromStdString(savePath));
-    if(!file.open(QIODevice::WriteOnly)){
-        std::cerr << "无法创建文件: " << savePath << std::endl;
+    const QString qSavePath = QString::fromStdString(savePath);
+
+    //确保目录存在
+    QFileInfo fileInfo(qSavePath);
+    QDir dir = fileInfo.absoluteDir();
+    if (!dir.mkpath(".")) {
+        std::cerr << "无法创建目录: " << dir.path().toStdString() << std::endl;
+        emitFileError(ip, fileName, false);
+        close(clientfd);
+        return;
+    }
+
+    //使用临时文件接收
+    const QString tempPath = qSavePath + ".part";
+    QFile file(tempPath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        std::cerr << "无法创建临时文件: " << tempPath.toStdString() << std::endl;
         emitFileError(ip, fileName, false);
         close(clientfd);
         return;
@@ -338,83 +354,92 @@ void TranslateFile::receiveFileData(int clientfd, const std::string &ip,
 
     char buffer[FILE_BUF_SIZE];
     uint64_t totalReceived = 0;
+    bool success = false;
+    bool errorOccurred = false;   //标记是否发生错误
 
-    while(true){
+    while (!errorOccurred) {      //用标志控制外层循环
         //接收数据块头
         FileDataHeader header;
-        int ret = recv(clientfd, &header, sizeof(header), MSG_WAITALL);
+        int ret;
+        do {
+            ret = recv(clientfd, &header, sizeof(header), MSG_WAITALL);
+        } while (ret < 0 && errno == EINTR);
         if (ret != sizeof(header)) {
             std::cerr << "接收数据头失败" << std::endl;
+            errorOccurred = true;
             break;
         }
-
         if (header.type != MSG_TYPE_TCP_FILE_DATA) {
             std::cerr << "意外消息类型: " << (int)header.type << std::endl;
+            errorOccurred = true;
             break;
         }
-
         uint32_t blockSize = ntohl(header.blockSize);
-
-        if(blockSize == 0){
-            //传输结束标志
+        if (blockSize == 0) {
+            success = true;
             std::cout << "文件传输完成: " << fileName << std::endl;
-            file.close();
-            QMetaObject::invokeMethod(this, [this, ip, fileName](){
-                emit fileTransferFinished(
-                    QString::fromStdString(ip),
-                    QString::fromStdString(fileName),
-                    true
-                    );
-            }, Qt::QueuedConnection);
-            close(clientfd);
-            return;
+            break;  //正常结束，跳出外层循环
         }
 
-        //接收数据块
+        //接收数据块（处理EINTR）
         uint32_t received = 0;
-        while(received < blockSize){
-            ret = recv(clientfd, buffer + received, blockSize - received, MSG_WAITALL);
-            if(ret <= 0){
+        while (received < blockSize) {
+            do {
+                ret = recv(clientfd, buffer + received, blockSize - received, MSG_WAITALL);
+            } while (ret < 0 && errno == EINTR);
+            if (ret <= 0) {
                 std::cerr << "接收数据块失败" << std::endl;
-                break;
+                errorOccurred = true;
+                break;  //跳出内层循环
             }
             received += ret;
         }
+        if (errorOccurred) break;  //错误发生，跳出外层循环
 
-        if(received != blockSize){
+        //写入文件并检查
+        qint64 written = file.write(buffer, blockSize);
+        if (written != blockSize) {
+            std::cerr << "写入文件失败" << std::endl;
+            errorOccurred = true;
             break;
         }
-
-        QFileInfo fileInfo(QString::fromStdString(savePath));
-        QDir dir = fileInfo.absoluteDir();
-        if(!dir.exists()){
-            dir.mkpath(".");  //递归创建目录
-        }
-
-        file.write(buffer, blockSize);
         totalReceived += blockSize;
 
-        //计算并发送进度
+        //进度通知
         int percent = fileSize > 0 ? (totalReceived * 100 / fileSize) : 100;
-        QMetaObject::invokeMethod(this, [this, ip, fileName, percent](){
+        QMetaObject::invokeMethod(this, [this, ip, fileName, percent]() {
             emit fileTransferProgress(
                 QString::fromStdString(ip),
                 QString::fromStdString(fileName),
-                percent
-                );
+                percent);
         }, Qt::QueuedConnection);
     }
 
-    //出错处理
     file.close();
-    std::cerr << "文件传输中断: " << fileName << std::endl;
-    QMetaObject::invokeMethod(this, [this, ip, fileName](){
-        emit fileTransferFinished(
-            QString::fromStdString(ip),
-            QString::fromStdString(fileName),
-            false
-            );
-    }, Qt::QueuedConnection);
+
+    if (success && !errorOccurred) {
+        //传输成功：删除旧文件，将临时文件重命名为目标文件
+        if (QFile::exists(qSavePath)) {
+            QFile::remove(qSavePath);
+        }
+        if (QFile::rename(tempPath, qSavePath)) {
+            QMetaObject::invokeMethod(this, [this, ip, fileName]() {
+                emit fileTransferFinished(
+                    QString::fromStdString(ip),
+                    QString::fromStdString(fileName),
+                    true);
+            }, Qt::QueuedConnection);
+        } else {
+            std::cerr << "重命名失败" << std::endl;
+            emitFileError(ip, fileName, false);
+            QFile::remove(tempPath);
+        }
+    } else {
+        //失败：删除临时文件
+        QFile::remove(tempPath);
+        emitFileError(ip, fileName, false);
+    }
+
     close(clientfd);
 }
 
@@ -447,7 +472,7 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
     //连接到目标
     int clientfd = socket(PF_INET, SOCK_STREAM, 0);
     if(clientfd < 0){
-        perror("send file socket create fail");
+        perror("sendAll file socket create fail");
         return;
     }
 
@@ -482,10 +507,10 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
     uint32_t nameLenNet = htonl(nameLen);
     uint64_t fileSizeNet = htobe64(fileSize);
 
-    send(clientfd, &type, sizeof(type), 0);
-    send(clientfd, &nameLenNet, sizeof(nameLenNet), 0);
-    send(clientfd, &fileSizeNet, sizeof(fileSizeNet), 0);
-    send(clientfd, fileName.c_str(), nameLen, 0);
+    sendAll(clientfd, &type, sizeof(type));
+    sendAll(clientfd, &nameLenNet, sizeof(nameLenNet));
+    sendAll(clientfd, &fileSizeNet, sizeof(fileSizeNet));
+    sendAll(clientfd, fileName.c_str(), nameLen);
 
     std::cout << "发送文件请求: " << fileName << " (" << fileSize << " 字节) 到 " << ip << std::endl;
 
@@ -527,10 +552,10 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
         FileDataHeader header;
         header.type = MSG_TYPE_TCP_FILE_DATA;
         header.blockSize = htonl(static_cast<uint32_t>(bytesRead));
-        send(clientfd, &header, sizeof(header), 0);
+        sendAll(clientfd, &header, sizeof(header));
 
         //发送数据
-        send(clientfd, buffer, bytesRead, 0);
+        sendAll(clientfd, buffer, bytesRead);
 
         totalSent += bytesRead;
 
@@ -554,7 +579,7 @@ void TranslateFile::sendFileData(const std::string &ip, const std::string &fileP
     FileDataHeader endHeader;
     endHeader.type = MSG_TYPE_TCP_FILE_DATA;
     endHeader.blockSize = 0;  //0表示传输结束
-    send(clientfd, &endHeader, sizeof(endHeader), 0);
+    sendAll(clientfd, &endHeader, sizeof(endHeader));
 
     std::cout << "文件发送完成: " << fileName << std::endl;
 
@@ -579,4 +604,20 @@ void TranslateFile::emitFileError(const std::string &ip, const std::string &file
             success
             );
     }, Qt::QueuedConnection);
+}
+
+bool TranslateFile::sendAll(int fd, const void* buf, size_t len){
+    size_t total = 0;
+    while (total < len) {
+        ssize_t n = send(fd, (const char*)buf + total, len - total, 0);
+        if (n > 0) {
+            total += n;
+        } else if (n < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        } else {
+            return false;
+        }
+    }
+    return true;
 }

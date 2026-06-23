@@ -40,7 +40,7 @@ public:
     explicit GroupChat(Chat *chat, QObject *parent = nullptr);
     ~GroupChat();
 
-    void createGroup(const std::vector<UserInfo> &groupMembers); //创建群聊
+    QString createGroup(const std::vector<UserInfo> &groupMembers); //创建群聊
     void sendMsgToGroup(const std::string &groupId, const std::string &content); //发送群聊消息
 
 signals:

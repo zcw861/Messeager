@@ -29,21 +29,19 @@ GroupChat::~GroupChat()
     //关闭epoll实例，立即唤醒 epoll_wait（避免它无限阻塞）
     //同时保证后续join前epollFd已失效，线程能够快速退出。
     if (m_epollFd != -1) {
-        close(m_epollFd);
+        shutdown(m_epollFd, SHUT_RDWR);
         m_epollFd = -1;
     }
 
     //等待epoll事件循环线程结束
-    if (m_epollThread.joinable()) {
-        m_epollThread.join();
-    }
+    if (m_epollThread.joinable()) { m_epollThread.join(); }
 
     //关闭所有活跃的群成员TCP连接
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         for (auto &[groupId, session] : m_sessions) {
             for (auto &[memberId, fd] : session.fds) {
-                close(fd);
+                shutdown(fd, SHUT_RDWR);
             }
         }
         m_sessions.clear();
@@ -51,7 +49,7 @@ GroupChat::~GroupChat()
     }
 }
 
-void GroupChat::createGroup(const std::vector<UserInfo> &groupMembers)
+QString GroupChat::createGroup(const std::vector<UserInfo> &groupMembers)
 {
     //生成群ID
     std::random_device rd;
@@ -85,6 +83,8 @@ void GroupChat::createGroup(const std::vector<UserInfo> &groupMembers)
             std::cerr << "连接群成员失败: " << member.name << " (" << member.ip << ")" << std::endl;
         }
     }
+
+    return QString::fromStdString(groupId);
 }
 
 int GroupChat::connectToMember(const std::string &ip)
