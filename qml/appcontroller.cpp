@@ -486,7 +486,16 @@ void AppController::synchronizeOnlineUsers()
 
         const QString peerId = networkUser.value(QStringLiteral("id")).toString().trimmed();
 
-        const QString name = networkUser.value(QStringLiteral("name")).toString().trimmed();
+        //优先将数据库的名字为主，不然旧的广播会覆盖数据库，具体效果可以删掉下面这个if语句查看
+        QString name = networkUser.value(QStringLiteral("name")).toString().trimmed();
+
+        if (peerId == m_chat.localId()) {
+            const QString savedName = savedUserName().trimmed();
+
+            if (!savedName.isEmpty()) {
+                name = savedName;
+            }
+        }
 
         const QString ip = networkUser.value(QStringLiteral("ip")).toString().trimmed();
 
@@ -664,4 +673,43 @@ void AppController::clearSavedUserName()
 {
     QSettings s;
     s.remove(QStringLiteral("login/userName"));
+}
+
+bool AppController::updateMyName(const QString &newName)
+{
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化！"));
+        return false;
+    }
+
+    const QString name = newName.trimmed();
+
+    if (name.isEmpty()) {
+        reportError(QStringLiteral("用户名不能为空"));
+        return false;
+    }
+
+    const QString localId = m_chat.localId().trimmed();
+    const QString localIp = m_chat.localIp().trimmed();
+    
+    if (localId.isEmpty() || localIp.isEmpty())
+    {
+        reportError(QStringLiteral("信息不完整，用户名修改失败"));
+        return false;
+    }
+
+    //更新数据库本机用户信息
+    if (!m_database.upsertPeer(localId, name, localIp, true)) {
+        reportError(QStringLiteral("更新本机用户名失败：") + m_database.lastError());
+        return false;
+    }
+
+    //更新自动登录用户名
+    QSettings s;
+    s.setValue(QStringLiteral("login/userName"), name);
+
+    //更新前端用户列表
+    refreshPeers();
+
+    return true;
 }

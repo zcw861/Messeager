@@ -35,6 +35,10 @@
 //         * 对整个窗口添加拖拽、放大、缩小，拉伸等功能，增加登录界面，可以一开始自定义名字
 //     [v0.2.1] JiangFan    2026-06-23
 //         * 增加群聊的右侧用户列表
+//     [v0.2.2] JiangFan   2026-06-24
+//         *增加群聊成员悬停2s显示成员资料卡的功能
+//         *修复更改名字左边用户列表名字不同步的问题
+
 
 import QtQuick
 import QtQuick.Controls
@@ -298,6 +302,35 @@ ApplicationWindow {
        console.log("打开群聊：", groupId, groupName, "成员数：", members.length)
    }
 
+   //修改本机用户名
+   function changeMyName(newName)
+   {
+        var name = newName.trim()
+
+        if (name.length === 0)
+        {
+           myNameEdit.text = root.myName
+           return
+        }
+
+        if (name === root.myName)
+        {
+           myNameEdit.text = root.myName
+           return
+        }
+
+        if (!appController.updateMyName(name))
+        {
+           myNameEdit.text = root.myName
+           return
+        }
+
+        root.myName = name
+        myNameEdit.text = name
+
+        console.log("用户名写入数据库成功：", name)
+   }
+
    //登录弹窗
    Window {
       id: loginWindow
@@ -333,6 +366,7 @@ ApplicationWindow {
             TextField {
                 id: loginNameField
 
+                color: "black"
                 Layout.fillWidth: true
                 Layout.preferredHeight: 30
 
@@ -438,6 +472,9 @@ ApplicationWindow {
 
                        TextField {
                            id:myNameEdit
+
+                           color: "black"
+
                            text: myName
                            font.pixelSize: 20
                            Layout.leftMargin: 10
@@ -458,10 +495,9 @@ ApplicationWindow {
                                border.width: 1
                            }
 
-                           //回车确认修改
-                           onAccepted: {
-                               root.myName = myNameEdit.text
-
+                           //回车确认修改(这里不用onAccepted了，用更高级的，可以对失去焦点响应
+                           onEditingFinished: {
+                               root.changeMyName(myNameEdit.text)
                            }
                        }
 
@@ -801,6 +837,10 @@ ApplicationWindow {
                                              model: groupMemberModel
 
                                              delegate: Rectangle {
+                                                 id: memberDelegate
+
+                                                 property bool showMemberInfo: false //是否显示小弹窗（成员信息卡片），由悬浮以及悬浮时间决定
+
                                                  width: groupMemberListView.width
                                                  height: 50
 
@@ -808,6 +848,26 @@ ApplicationWindow {
 
                                                  HoverHandler {
                                                     id: memberHover
+
+                                                    onHoveredChanged: {
+                                                        if (hovered)
+                                                           memberHoverTimer.restart()
+                                                        else {
+                                                           memberHoverTimer.stop()
+                                                           memberDelegate.showMemberInfo = false
+                                                        }
+                                                    }
+                                                 }
+
+                                                 Timer {
+                                                    id: memberHoverTimer
+                                                    interval: 2000
+                                                    repeat: false
+
+                                                    onTriggered: {
+                                                        if (memberHover.hovered)
+                                                           memberDelegate.showMemberInfo = true
+                                                    }
                                                  }
 
                                                  RowLayout {
@@ -843,35 +903,102 @@ ApplicationWindow {
                                                         Text {
                                                            Layout.fillWidth: true
 
-                                                           text: isSelf ? username + "(me)" : username
+                                                           text: username
                                                            font.pixelSize: 15
                                                            color: "#676767"
                                                            elide: Text.ElideRight
                                                         }
 
-                                                        //群成员在线状态信息
+                                                     }
+                                                 }
+
+                                                 //小弹窗（群成员信息卡片)
+                                                 Popup {
+                                                    id: memberInfoPopup
+
+                                                    visible: memberDelegate.showMemberInfo //悬浮 + 悬浮时间 共同决定显示
+
+                                                    //在列表左边
+                                                    x: -width
+                                                    y: 0
+
+                                                    width: 200
+                                                    height: 100
+
+                                                    background: Rectangle {
+                                                        color: "#FFFFFF"
+                                                        radius: 10
+                                                    }
+
+                                                    //弹窗卡片布局
+                                                    ColumnLayout {
+                                                        anchors.fill: parent
+                                                        anchors.margins: 10
+                                                        spacing: 5
+
                                                         RowLayout {
-                                                           id: memberMessageLayout
+                                                           //头像
+                                                           Rectangle {
+                                                              Layout.preferredHeight: 60
+                                                              Layout.preferredWidth: 60
+                                                              Layout.alignment: Qt.AlignVCenter
 
-                                                           Layout.fillWidth: true
-                                                           Layout.fillHeight: true
+                                                              radius: 999
+                                                              color: isSelf ? "#D8ECFF" : "#EEEEEE"
 
-                                                           //在线状态原点
-                                                           Rectangle{
+                                                              Text {
+                                                                 text: username.length > 0 ? username.charAt(0) : "?"
+                                                                 font.pixelSize: 40
+                                                                 color: "green"
 
-                                                              width: 10
-                                                              height: 10
-                                                              radius: 20
-                                                              color: online ? "#00CA00" : "#B8B8B8"
+                                                                 anchors.centerIn: parent
+                                                              }
                                                            }
 
-                                                           Text {
-                                                              Layout.fillWidth: true
+                                                           ColumnLayout
+                                                           {
+                                                               Text {
+                                                                  text: username + (isSelf ? "" : "")
+                                                                  font.pixelSize: 15
+                                                                  font.bold: true
+                                                                  color: "black"
+                                                                  elide: Text.ElideRight
+                                                                  Layout.fillWidth: true
+                                                               }
 
-                                                              text: ip
-                                                              font.pixelSize: 10
-                                                              color: online ? "#43A047" : "#999999"
-                                                              elide: Text.ElideRight
+                                                               Text {
+                                                                  text: "ID: " + peerId
+                                                                  font.pixelSize: 10
+                                                                  color: "black"
+                                                                  elide: Text.ElideRight
+                                                                  Layout.fillWidth: true
+                                                               }
+
+                                                               //群成员在线状态信息
+                                                               RowLayout {
+                                                                  id: memberMessageLayout
+
+                                                                  Layout.fillWidth: true
+                                                                  Layout.fillHeight: true
+
+                                                                  //在线状态原点
+                                                                  Rectangle{
+
+                                                                     width: 10
+                                                                     height: 10
+                                                                     radius: 20
+                                                                     color: online ? "#00CA00" : "#B8B8B8"
+                                                                  }
+
+                                                                  Text {
+                                                                     Layout.fillWidth: true
+
+                                                                     text: ip
+                                                                     font.pixelSize: 10
+                                                                     color: online ? "#43A047" : "#999999"
+                                                                     elide: Text.ElideRight
+                                                                  }
+                                                               }
                                                            }
                                                         }
                                                     }

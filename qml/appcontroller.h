@@ -99,6 +99,8 @@ public:
     Q_INVOKABLE QString savedUserName() const; //读取上次登录用户名
     Q_INVOKABLE void clearSavedUserName();     //清除上次登录用户名
 
+    Q_INVOKABLE bool updateMyName(const QString &newName); //更新本机用户名
+
     //选择一个群聊，并加载该群的成员和历史消息
     Q_INVOKABLE void selectGroup(const QString &groupId);
 
