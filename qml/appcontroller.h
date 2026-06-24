@@ -8,6 +8,10 @@
 //         *修改消息接收处理函数，增加发送者peerId参数
 //     [v0.1.3] ZhouChengWei    2026-06-22 11:29:12
 //         * 添加了获取本机IP的函数
+//     [v0.1.4] HeZhiyuan    2026-06-23 17:13:52
+//         * 新增：createGroup()
+//           接收群名称和群成员列表，并返回网络层生成的真实groupId
+
 #pragma once
 
 #include <QObject>
@@ -16,8 +20,12 @@
 #include <QUrl>
 #include <QSet>
 #include <QtQml/qqmlregistration.h>
-
-#include "databasemanager.h"
+#include <QStringList>
+#include "databasecore.h"
+#include "databasecheck.h"
+#include "peerdatabase.h"
+#include "privatechatdatabase.h"
+#include "groupchatdatabase.h"
 #include "chat.h"
 #include "groupchat.h"
 #include "translatefile.h"
@@ -39,6 +47,11 @@ class AppController : public QObject
     //是否已经完成数据库和网络服务初始化
     Q_PROPERTY(bool ready READ ready NOTIFY readyChanged FINAL)
 
+    //提供给创建群聊窗口的候选成员。
+    //第一项为本机用户，后续成员来自数据库peers表。
+    //数据库中的在线和离线用户都会保留。
+    Q_PROPERTY(QVariantList groupCandidates READ groupCandidates NOTIFY groupCandidatesChanged FINAL)
+
     //提供给QML的群聊列表，每个元素由DatabaseManager::loadGroups()返回，主要包含：
     //groupId、groupName、creatorId、memberCount、memberSummary、createdAt和updatedAt
     Q_PROPERTY(QVariantList groups READ groups NOTIFY groupsChanged FINAL)
@@ -56,6 +69,7 @@ public:
     ~AppController() override;
 
     QVariantList peers() const; //获取当前用户列表
+    QVariantList groupCandidates() const;   //返回创建群聊窗口使用的全部候选成员
     QVariantList messages() const;  //获取当前选中用户的聊天记录
     QString lastError() const;  //获取最近一次错误信息
     bool ready() const; //查询是否初始化完成
@@ -107,8 +121,16 @@ public:
     //退出当前群聊会话
     Q_INVOKABLE void clearGroupConversation();
 
+    //创建一个新的群聊
+    //成功时返回网络层生成的真实groupId
+    //失败时返回空字符串，并通过operationFailed信号报告原因
+    Q_INVOKABLE QString createGroup(const QString &groupName, const QVariantList &members);
+
+    //向指定群聊发送文本消息
+    Q_INVOKABLE bool sendGroupMessage(const QString &groupId, const QString &content);
 signals:
     void peersChanged();    //用户列表发生变化时发出，通知QML重新读取peers属性
+    void groupCandidatesChanged();      //群聊候选成员发生变化后，通知QML重新读取groupCandidates
     void messagesChanged();     //当前聊天消息列表发生变化时发出，通知QML刷新聊天列表
 
     //数据库中的群聊列表发生变化后发出，QML收到信号后会重新读取groups
@@ -136,6 +158,25 @@ private:
                                 const QString &fromIp,
                                 const QString &message);
 
+    //处理网络层接收到的群聊消息
+    void handleGroupMessageReceived( const QString &groupId,
+                                     const QString &fromId,
+                                     const QString &fromName,
+                                     const QString &content);
+
+    //处理收到的UDP群邀请
+    void handleGroupInviteReceived(const QString &groupId,
+                                   const QString &groupName,
+                                   const QString &inviterId,
+                                   const QString &inviterName,
+                                   const QString &inviterIp,
+                                   const QStringList &memberRecords);
+
+    //从数据库恢复全部GroupChat会话
+    void restoreGroupSessions();
+
+    static bool containsProtocolSeparator(const QString &text);
+
     void refreshPeers();    //从数据库重新读取用户列表，并在内容变化时通知 QML
     void refreshMessages();     //从数据库重新读取当前聊天对象的消息记录,并在内容变化时通知 QML
     void reportError(const QString &message);   //统一记录并报告业务错误
@@ -150,7 +191,13 @@ private:
     void refreshGroupMessages();
 
 private:
-    DatabaseManager m_database; //本地SQLite数据库管理对象
+    DatabaseCore m_databaseCore;
+    //用户身份和在线用户数据库
+    PeerDatabase m_peerDatabase;
+    //私聊消息数据库
+    PrivateChatDatabase m_privateChatDatabase;
+    //群聊、群成员和群消息数据库
+    GroupChatDatabase m_groupChatDatabase;
     Chat m_chat;  //局域网用户发现和消息收发对象
     GroupChat m_groupChat;  //群聊对象
 
