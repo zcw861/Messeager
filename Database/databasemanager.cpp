@@ -397,69 +397,104 @@ bool DatabaseManager::loadOrCreateLocalPeerId( const QString &candidatePeerId, Q
     return true;
 }
 
+//检查十位群ID是否已经被数据库中的群聊占用
+bool DatabaseManager::groupExists(
+    const QString &groupId)
+{
+    m_lastError.clear();
+
+    if (!m_db.isOpen()) {
+        m_lastError =
+            QStringLiteral("数据库未打开");
+
+        return false;
+    }
+
+    const QString normalizedGroupId =
+        groupId.trimmed();
+
+    if (normalizedGroupId.isEmpty()) {
+        m_lastError =
+            QStringLiteral("群聊ID为空");
+
+        return false;
+    }
+
+    QSqlQuery query(m_db);
+
+    const QString sql = R"(
+        SELECT 1
+        FROM chat_groups
+        WHERE group_id = :group_id
+        LIMIT 1
+    )";
+
+    if (!query.prepare(sql)) {
+        m_lastError =
+            QStringLiteral("准备检查群聊ID SQL失败：")
+            + query.lastError().text();
+
+        return false;
+    }
+
+    query.bindValue(
+        QStringLiteral(":group_id"),
+        normalizedGroupId);
+
+    if (!query.exec()) {
+        m_lastError =
+            QStringLiteral("检查群聊ID失败：")
+            + query.lastError().text();
+
+        return false;
+    }
+
+    //查询到一行，表示该群ID已经存在。
+    return query.next();
+}
+
 //创建一个群聊，并保存全部群成员
 bool DatabaseManager::createGroup(const QString &groupId,
                                   const QString &groupName,
                                   const QString &creatorId,
                                   const QVariantList &members)
 {
-    //开始新的数据库操作前清理旧错误，
     m_lastError.clear();
 
-    //所有数据库读写都必须建立在数据库已经打开的前提下
     if (!m_db.isOpen()) {
         m_lastError = QStringLiteral("数据库未打开");
         return false;
     }
 
-    //群ID由网络层生成，这里只去除首尾空白
     const QString normalizedGroupId = groupId.trimmed();
-
-    //群名称去除首尾空格后再进行校验和保存
     const QString normalizedGroupName = groupName.trimmed();
-
-    //创建者ID属于用户peerId
     const QString normalizedCreatorId = normalizePeerId(creatorId);
 
-    if (normalizedGroupId.isEmpty()) {
-        m_lastError = QStringLiteral("群聊ID为空");
-        return false;
-    }
-
     if (normalizedGroupName.isEmpty()) {
-        m_lastError = QStringLiteral("群聊名称为空");
+        m_lastError = QStringLiteral("群聊名称不能为空");
         return false;
     }
 
     if (normalizedCreatorId.isEmpty()) {
-        m_lastError = QStringLiteral("创建者peerId无效");
+        m_lastError = QStringLiteral("群聊创建者ID无效");
         return false;
     }
 
-    //群聊至少三人，并且人数包含自己，
-    //数据库层再次校验，防止绕过QML限制
+    //数据库层再次检查，不能只依赖QML状态
     if (members.size() < 3) {
         m_lastError = QStringLiteral("群聊成员不能少于三人");
         return false;
     }
 
-    //保存已经出现过的成员ID，用于拒绝重复成员
     QSet<QString> memberIds;
-
-    //先整理和校验全部成员
     QVariantList normalizedMembers;
-
-    //减少列表扩容次数
     normalizedMembers.reserve(members.size());
 
-    //用于确认创建者包含在群成员列表中
     bool creatorIncluded = false;
 
     for (const QVariant &item : members) {
-        //前端传入的每个成员都是一个js对象，到C++后会转换成QVariantMap
         const QVariantMap member = item.toMap();
 
-        //成员ID是peerId，因此统一UUID格式
         const QString memberId = normalizePeerId(member.value(QStringLiteral("peerId")).toString());
 
         const QString username = member.value(QStringLiteral("username")).toString().trimmed();
@@ -470,44 +505,63 @@ bool DatabaseManager::createGroup(const QString &groupId,
         }
 
         if (username.isEmpty()) {
-            m_lastError = QStringLiteral("群成员用户名为空");
+            m_lastError = QStringLiteral("群成员用户名不能为空");
             return false;
         }
 
-        //同一个用户不能在同一个群中出现两次
         if (memberIds.contains(memberId)) {
             m_lastError = QStringLiteral("群成员列表中存在重复用户：") + username;
             return false;
         }
 
         memberIds.insert(memberId);
+        creatorIncluded = creatorIncluded || memberId == normalizedCreatorId;
 
-        if (memberId == normalizedCreatorId) { creatorIncluded = true;}
-
-        //数据库层保留的字段
         QVariantMap normalizedMember;
         normalizedMember.insert(QStringLiteral("peerId"), memberId);
-        normalizedMember.insert(QStringLiteral("username"), username);
+        normalizedMember.insert(QStringLiteral("username"),username);
+
         normalizedMembers.append(normalizedMember);
     }
 
-    //一个群的创建者必须是群成员
     if (!creatorIncluded) {
         m_lastError = QStringLiteral("创建者不在群成员列表中");
         return false;
     }
 
-    //事务保证下面两类写入：
-    //1.chat_groups；
-    //2.所有group_members
+
+    //群ID已经存在时，只允许同一创建者重复写入
+    QSqlQuery existingQuery(m_db);
+
+    existingQuery.prepare(QStringLiteral(
+        "SELECT creator_id "
+        "FROM chat_groups "
+        "WHERE group_id = :group_id"));
+
+    existingQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+
+    if (!existingQuery.exec()) {
+        m_lastError = QStringLiteral("检查群聊ID失败：") + existingQuery.lastError().text();
+        return false;
+    }
+
+    if (existingQuery.next()) {
+        const QString existingCreatorId = normalizePeerId(existingQuery.value(0).toString());
+        if (existingCreatorId != normalizedCreatorId) {
+            m_lastError = QStringLiteral("群聊ID已被其他群占用");
+            return false;
+        }
+    }
+
     if (!m_db.transaction()) {
-        m_lastError = m_db.lastError().text();
+        m_lastError = QStringLiteral("开启群聊保存事务失败：") + m_db.lastError().text();
         return false;
     }
 
     QSqlQuery groupQuery(m_db);
 
-    const QString insertGroupSql = R"(
+    //  重复邀请时更新群名称和创建者
+    const QString upsertGroupSql = R"(
         INSERT INTO chat_groups(
             group_id,
             group_name,
@@ -522,10 +576,13 @@ bool DatabaseManager::createGroup(const QString &groupId,
             CURRENT_TIMESTAMP,
             CURRENT_TIMESTAMP
         )
+        ON CONFLICT(group_id) DO UPDATE SET
+            group_name = excluded.group_name,
+            creator_id = excluded.creator_id
     )";
 
-    if (!groupQuery.prepare(insertGroupSql)) {
-        m_lastError = groupQuery.lastError().text();
+    if (!groupQuery.prepare(upsertGroupSql)) {
+        m_lastError = QStringLiteral("准备保存群聊SQL失败：") + groupQuery.lastError().text();
         m_db.rollback();
         return false;
     }
@@ -538,7 +595,19 @@ bool DatabaseManager::createGroup(const QString &groupId,
 
     if (!groupQuery.exec()) {
         m_lastError = QStringLiteral("保存群聊基本信息失败：") + groupQuery.lastError().text();
+        m_db.rollback();
+        return false;
+    }
 
+    //邀请可能重复到达
+    QSqlQuery deleteMembersQuery(m_db);
+
+    deleteMembersQuery.prepare(QStringLiteral("DELETE FROM group_members " "WHERE group_id = :group_id"));
+
+    deleteMembersQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+
+    if (!deleteMembersQuery.exec()) {
+        m_lastError = QStringLiteral("清理旧群成员失败：") + deleteMembersQuery.lastError().text();
         m_db.rollback();
         return false;
     }
@@ -562,10 +631,8 @@ bool DatabaseManager::createGroup(const QString &groupId,
         )
     )";
 
-    //成员SQL只prepare一次
-    //后续针对每个成员重新绑定参数并执行
     if (!memberQuery.prepare(insertMemberSql)) {
-        m_lastError = memberQuery.lastError().text();
+        m_lastError = QStringLiteral("准备保存群成员SQL失败：") + memberQuery.lastError().text();
         m_db.rollback();
         return false;
     }
@@ -577,33 +644,50 @@ bool DatabaseManager::createGroup(const QString &groupId,
 
         memberQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
 
-        memberQuery.bindValue(QStringLiteral(":peer_id"),
-                              member.value(QStringLiteral("peerId")).toString());
+        memberQuery.bindValue(QStringLiteral(":peer_id"), member.value(QStringLiteral("peerId")));
 
-        memberQuery.bindValue(QStringLiteral(":username"),
-                              member.value(QStringLiteral("username")).toString());
+        memberQuery.bindValue(QStringLiteral(":username"), member.value(QStringLiteral("username")));
 
-        //按照前端选择数组原有顺序保存成员顺序
-        //这样程序重新启动后，成员列表和默认群名不会随机变化
         memberQuery.bindValue(QStringLiteral(":member_order"), memberOrder);
 
         if (!memberQuery.exec()) {
             m_lastError = QStringLiteral("保存群成员失败：") + memberQuery.lastError().text();
-            //任意一个成员保存失败，都撤销前面已经插入的群和成员
             m_db.rollback();
             return false;
         }
-
-        //结束本轮执行状态，使预处理查询安全地用于下一位成员
         memberQuery.finish();
-
         memberOrder++;
     }
 
-    //所有成员都成功保存后才能提交事务
     if (!m_db.commit()) {
         m_lastError = QStringLiteral("提交创建群聊事务失败：") + m_db.lastError().text();
         m_db.rollback();
+        return false;
+    }
+
+    return true;
+}
+
+//删除群聊
+bool DatabaseManager::deleteGroup(const QString &groupId)
+{
+    m_lastError.clear();
+
+    if (!m_db.isOpen()) {
+        m_lastError = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    const QString normalizedGroupId = groupId.trimmed();
+
+    QSqlQuery query(m_db);
+
+    query.prepare(QStringLiteral("DELETE FROM chat_groups " "WHERE group_id = :group_id"));
+
+    query.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+
+    if (!query.exec()) {
+        m_lastError = QStringLiteral("删除群聊失败：") + query.lastError().text();
         return false;
     }
 

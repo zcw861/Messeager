@@ -15,8 +15,11 @@ include(GNUInstallDirs)
 
 add_library(Database SHARED
     database_global.h
-    databasemanager.h
-    databasemanager.cpp
+    databasecore.h databasecore.cpp
+    databasecheck.h databasecheck.cpp
+    peerdatabase.h peerdatabase.cpp
+    privatechatdatabase.h privatechatdatabase.cpp
+    groupchatdatabase.h groupchatdatabase.cpp
 )
 
 target_compile_features(Database PRIVATE cxx_std_23)

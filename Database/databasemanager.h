@@ -66,9 +66,17 @@ public:
     //如果数据库中还没有本机ID，就保存candidatePeerId；如果数据库中已经有本机ID，则忽略candidatePeerId
     bool loadOrCreateLocalPeerId(const QString &candidatePeerId, QString &persistentPeerId);
 
+    //检查指定群ID是否已经存在
+    //存在返回true，不存在返回false；查询失败时通过lastError报告
+    bool groupExists(const QString &groupId);
+
     //创建一个群聊，并一次性保存群聊基本信息和全部成员,
     //该函数使用数据库事务：群信息和全部成员要么一起保存成功，要么任何内容都不写入数据库
     bool createGroup(const QString &groupId, const QString &groupName, const QString &creatorId, const QVariantList &members);
+
+    //删除指定群聊
+    //group_members和group_messages由SQLite外键级联删除
+    bool deleteGroup(const QString &groupId);
 
     //读取数据库中保存的全部群聊
     //每个群聊包含：groupId、groupName、creatorId、memberCount、memberSummary、createdAt和updatedAt
