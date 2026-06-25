@@ -9,16 +9,21 @@
 //         * 添加左侧用户列表。
 //     [v0.1.3]  JiangFan       2026-06-06 22:31:45
 //         * 实现搜索框搜索功能
-//     [v0.1.3]  JiangFan       2026-06-21
+//     [v0.1.4]  JiangFan       2026-06-21
 //         * 重构：使用Layout管理主窗口结构
-//     [v0.1.4]  HeZhiyuan       2026-06-22
+//     [v0.1.5]  HeZhiyuan       2026-06-22
 //         * 重构：1.默认本机用户为群聊成员之一
 //                2.左侧点击用户后，在右侧显示
 //                3.少于三人无法创建群聊
 //           修改部分UI界面
-//     [v0.1.4]  HeZhiyuan       2026-06-22
+//     [v0.1.6]  HeZhiyuan       2026-06-22
 //         * 修改: 确定按钮的颜色与格式
 //           新增：生成模拟的群聊id，生成默认群名称，传递信号给PeerPanel
+//     [v0.1.7]  HeZhiyuan       2026-06-23
+//         * 完善创建群聊请求的前端提交流程
+//     [v0.1.8]  HeZhiyuan       2026-06-25
+//         * 移除QML生成模拟群聊ID的旧逻辑，群聊ID统一由C++网络层生成
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -39,27 +44,45 @@ Window {
     //当前已经选中的总人数(包含自己)
     property int selectedCount: 0
 
-    //当满足人数要求并点击“确定”后，通过该信号把结果传递给PeerPanel.qml
-    //groupId：临时生成的群聊唯一标识
-    //groupName：根据成员名称生成的默认群名称
-    //members：由已选择成员组成的 JavaScript 数组
-    signal groupCreationConfirmed(string groupId, string groupName, var members)
+    //当前是否正在向C++提交群聊创建请求
+    //为true时禁用确定按钮，避免用户连续点击，导致同一组成员创建多个不同的群聊
+    property bool creationInProgress: false
 
-    //是否已经满足创建群聊的条件。
-    readonly property bool canCreateGroup: selectedCount >= minGroupMemberCount
+    //用户确认创建群聊后，向PeerPanel发送创建请求
+    //这里只传递群名称和成员列表，不在QML中生成groupId
+    //真实groupId必须由C++网络层GroupChat统一生成
+    signal groupCreationRequested(string groupName, var members)
+
+    //人数满足要求，并且当前没有正在执行的创建请求时，才允许再次点击确定按钮
+    readonly property bool canCreateGroup: selectedCount >= minGroupMemberCount && !creationInProgress
 
     //距离允许创建群聊还缺少多少人
     readonly property int missingMemberCount: Math.max(0, minGroupMemberCount - selectedCount)
 
-    //判断用户是否匹配关键字(跟PeerPanel一样）
+    //由PeerPanel传入的候选成员。
+    //列表内容来自AppController.groupCandidates。
+    property var candidateSourceModel: []
+
+    //把undefined、null或其他值转换为安全字符串。
+    function normalizedText(value)
+    {
+        if (value === undefined || value === null)
+            return ""
+
+        return String(value).trim()
+    }
+
+    //判断用户名或IP是否包含当前搜索关键字
     function matchSearch(username, ip)
     {
-        if (searchKeyword.length == 0)
+        //没有搜索内容时显示全部成员
+        if (searchKeyword.length === 0)
             return true
+        //统一转换为小写，避免搜索受到大小写影响
+        const keyword = searchKeyword.toLowerCase()
 
-        var keyword = searchKeyword.toLowerCase()
-
-        return username.toLowerCase().indexOf(keyword) !== -1 || ip.toLowerCase().indexOf(keyword) !== -1
+        //用户名或IP任意一个匹配就显示该成员
+        return username.toLowerCase().includes(keyword) || ip.toLowerCase().includes(keyword)
     }
 
     //根据selected角色，重新计算已选择人数
@@ -67,9 +90,9 @@ Window {
     {
         var count = 0
         //遍历候选成员中的每一项
-        for (var row = 0; row < testPeerModel.count; row++) {
+        for (var row = 0; row < candidateModel.count; row++) {
             //get(row)用于取得指定行的模型数据
-            var user = testPeerModel.get(row)
+            var user = candidateModel.get(row)
 
             //只统计selected为true的成员
             if (user.selected)
@@ -80,43 +103,24 @@ Window {
     }
 
     //修改指定成员的选中状态
-    //row：成员在 testPeerModel 中的行号
+    //row：成员在 candidateModel 中的行号
     //selected：准备设置的新状态
     function setUserSelected(row, selected)
     {
-        //获取当前行对应的用户
-        var user = testPeerModel.get(row)
-        //自己必须一直存在于群聊中
-        if (user.isSelf)
-            return
-        //状态相同就不需要重复修改模型
-        if (user.selected === selected)
-            return
+        //根据行号取得候选成员
+        const user = candidateModel.get(row)
 
-        //修改当前行的selected角色，左侧和右侧ListView都会变化
-        testPeerModel.setProperty(row, "selected", selected)
+        //本机用户必须始终属于群聊，因此不能取消选中
+        if (user.isSelf) return
 
-        //模型修改完成后重新统计人数
+        //状态没有发生变化时不重复修改模型
+        if (user.selected === selected) return
+
+        //只修改当前行的selected角色
+        candidateModel.setProperty(row, "selected", selected)
+
+        //模型发生变化后重新统计已选择人数
         recountSelectedUsers()
-    }
-
-    //获取当前已选中的用户列表
-    function selectedMembers() {
-        var members = []
-
-        for (var i = 0; i < testPeerModel.count; i++)
-            var user = testPeerModel.get(i)
-
-        if (user.selected) {
-            members.push({
-                peerId: user.peerId,
-                username: user.username,
-                ip: user.ip,
-                online: user.online
-            })
-        }
-
-        return members
     }
 
     //把当前所有已选择的成员整理成一个js数组
@@ -125,8 +129,8 @@ Window {
     {
         var members = []
 
-        for (var row = 0; row < testPeerModel.count; ++row) {
-            var user = testPeerModel.get(row)
+        for (var row = 0; row < candidateModel.count; ++row) {
+            var user = candidateModel.get(row)
             //未选择的用户不加入群成员数组
             if (!user.selected)
                 continue
@@ -143,13 +147,6 @@ Window {
         }
 
         return members
-    }
-
-    //生成模拟的临时群ID
-    //Date.now() 返回当前时间的毫秒时间戳
-    function createTemporaryGroupId()
-    {
-        return "local-group-" + String(Date.now())
     }
 
     //根据已选择成员生成默认群名称
@@ -170,76 +167,98 @@ Window {
         return joinedNames + "（" + members.length + "人）"
     }
 
+    //由PeerPanel在C++群聊创建完成后调用，确定是否要恢复按钮状态
+    function finishCreation(success)
+    {
+        creationInProgress = false
+        if (success)
+            inviteUserInterface.close()
+    }
+
+    //将C++提供的候选成员复制到本地ListModel
+    //candidateSourceModel负责提供C++候选成员数据，candidateModel在候选成员字段基础上增加selected界面状态
+    function rebuildCandidateModel()
+    {
+        candidateModel.clear()
+
+        if (candidateSourceModel === undefined || candidateSourceModel === null) {
+            selectedCount = 0
+            return
+        }
+
+        var addedPeerIds = {}
+
+        for (var sourceIndex = 0; sourceIndex < candidateSourceModel.length; ++sourceIndex) {
+            //从C++提供的候选列表中读取当前成员
+            const sourceUser = candidateSourceModel[sourceIndex]
+
+            //规范化成员字段，避免undefined、null和首尾空格
+            const peerId = normalizedText(sourceUser.peerId)
+            const username = normalizedText(sourceUser.username)
+            const ip = normalizedText(sourceUser.ip)
+
+            //把模型中的值明确转换为bool
+            const online = Boolean(sourceUser.online)
+            const isSelf = Boolean(sourceUser.isSelf)
+
+            //缺少稳定ID或用户名的异常记录不显示。
+            if (peerId.length === 0 || username.length === 0) {
+                continue
+            }
+
+            //同一个peerId只能出现一次。
+            if (addedPeerIds[peerId] === true)
+                continue
+
+            addedPeerIds[peerId] = true
+
+            //离线成员也保留在候选列表中
+            candidateModel.append({
+                peerId: peerId,
+                username: username,
+                ip: ip,
+                online: online,
+                selected: isSelf,
+                isSelf: isSelf
+            })
+        }
+
+        recountSelectedUsers()
+    }
+
     //恢复创建群聊窗口的初始状态
     //初始状态是：自己被选中，其他所有用户未选中
     function resetSelection()
     {
-        for (var row = 0; row < testPeerModel.count; row++) {
-            var user = testPeerModel.get(row)
+        for (var row = 0; row < candidateModel.count; row++) {
+            var user = candidateModel.get(row)
             //自己设置为true
             //普通成员设置为false
-            testPeerModel.setProperty(row, "selected", user.isSelf)
+            candidateModel.setProperty(row, "selected", user.isSelf)
         }
 
         //重置模型后重新统计人数
         recountSelectedUsers()
     }
 
-    //QML对象创建完成后，进行第一次初始化
-    Component.onCompleted: {
-        resetSelection()
-    }
+    //成员变化时重新构造本地选择模型
+    onCandidateSourceModelChanged: rebuildCandidateModel()
 
-    //每次创建群聊窗口重新显示时，恢复初始状态
+    //每次重新打开窗口时恢复搜索和选择状态
     onVisibleChanged: {
-        if (!visible)
-            return
-        //清空上一次输入的搜索内容
-        searchField.text = ""
+        //窗口隐藏时不做处理
+        if (!visible) return
+        //恢复创建按钮状态
+        creationInProgress = false
+        //清空上一次搜索内容
+        searchField.clear()
         searchKeyword = ""
-
-        //只保留自己为选中状态
+        //候选数据没有变化时只重置选择状态，不重新复制整个模型
         resetSelection()
     }
 
     ListModel {
-        id: testPeerModel
-
-        ListElement {
-            peerId: "self"
-            username: "me"
-            ip: "192.168.1.100"
-            online: true
-            selected: true
-            isSelf: true
-        }
-
-        ListElement {
-            peerId: "01"
-            username: "张三"
-            ip: "192.168.1.1"
-            online: true
-            selected: false
-            isSelf: false
-        }
-
-        ListElement {
-            peerId: "02"
-            username: "李四"
-            ip: "192.168.1.2"
-            online: true
-            selected: false
-            isSelf: false
-        }
-
-        ListElement {
-            peerId: "03"
-            username: "王五"
-            ip: "192.168.1.3"
-            online: false
-            selected: false
-            isSelf: false
-        }
+        id: candidateModel
     }
 
     Rectangle {
@@ -272,7 +291,7 @@ Window {
                     placeholderText: "搜索用户..."
 
                     background: Rectangle {
-                        id: searchBackGround
+                        id: searchBackground
                         radius: 10
                         color: "#ffffff"
                         border.color: searchField.activeFocus ? "#a6ceec" : "#e0e0e0"
@@ -286,7 +305,7 @@ Window {
 
                 //左侧用户列表
                 Rectangle{
-                    id:leftInvateUser
+                    id:leftInviteUser
 
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -308,7 +327,7 @@ Window {
                         anchors.fill: parent
                         anchors.margins: 5
                         clip: true
-                        model: testPeerModel
+                        model: candidateModel
 
                         delegate: Rectangle {
                             id: candidateRow
@@ -356,20 +375,6 @@ Window {
                                     color: candidateRow.selected ? "#029aff" : "white"
                                     border.width: 1
                                     border.color: candidateRow.selected ? "#029aff" : "#d0d0d0"
-
-                                    // // 选中后显示对勾。
-                                    // Text {
-                                    //     width: parent.width
-                                    //     height: parent.height
-
-                                    //     text: ""
-                                    //     visible: candidateRow.selected
-                                    //     color: "white"
-                                    //     font.pixelSize: 13
-
-                                    //     horizontalAlignment: Text.AlignHCenter
-                                    //     verticalAlignment: Text.AlignVCenter
-                                    // }
                                 }
 
                                 // 中间显示用户名和 IP。
@@ -423,12 +428,8 @@ Window {
                                 acceptedButtons: Qt.LeftButton
                                 gesturePolicy: TapHandler.ReleaseWithinBounds
                                 onTapped: {
-                                    //selected为true时改为false
-                                    //selected为false时改为true
-                                    inviteUserInterface.setUserSelected(
-                                                candidateRow.index,
-                                                !candidateRow.selected
-                                    )
+                                    //把当前成员的选中状态取反
+                                    inviteUserInterface.setUserSelected(candidateRow.index, !candidateRow.selected)
                                 }
                             }
                         }
@@ -505,7 +506,7 @@ Window {
                     clip: true
                     spacing: 0
 
-                    model: testPeerModel
+                    model: candidateModel
 
                     delegate: Rectangle {
                         id: selectedRow
@@ -635,7 +636,7 @@ Window {
 
                                     onTapped: {
                                         //将该成员的selected改为false
-                                        inviteUserInterface.setUserSelected( selectedRow.index, false)
+                                        inviteUserInterface.setUserSelected(selectedRow.index, false)
                                     }
                                 }
                             }
@@ -649,13 +650,11 @@ Window {
                     Layout.rightMargin: 20
                     Layout.bottomMargin: 10
 
-                    visible: !inviteUserInterface.canCreateGroup
+                    //只有人数确实不足时才显示人数提示
+                    visible: inviteUserInterface.missingMemberCount > 0
 
-                    text: "至少需要 "
-                          + inviteUserInterface.minGroupMemberCount
-                          + " 人，还需选择 "
-                          + inviteUserInterface.missingMemberCount
-                          + " 人"
+                    text: qsTr("至少需要 %1 人，还需选择 %2 人")
+                            .arg(inviteUserInterface.minGroupMemberCount).arg(inviteUserInterface.missingMemberCount)
 
                     color: "#e67e22"
                     font.pixelSize: 12
@@ -682,7 +681,7 @@ Window {
                         Layout.preferredWidth: 60
                         Layout.rightMargin: 10
 
-                        radius: 10;
+                        radius: 10
 
                         //根据是否选择用户和悬停状态改变颜色
                         color: {
@@ -717,22 +716,21 @@ Window {
                             gesturePolicy: TapHandler.ReleaseWithinBounds
 
                             onTapped: {
-                                //人数不足时不能创建群聊
+                                //人数不足或正在创建时，不重复提交
                                 if (!inviteUserInterface.canCreateGroup)
                                     return
-                                //收集当前所有已选择成员
+
+                                //收集当前全部已选择成员
                                 var members = inviteUserInterface.collectSelectedMembers()
 
-                                //生成当前临时群ID
-                                var groupId = inviteUserInterface.createTemporaryGroupId()
-
-                                //根据成员用户名生成默认群名称
+                                //默认群名由前端根据当前显示名称生成
                                 var groupName = inviteUserInterface.buildDefaultGroupName(members)
-                                // 向外发出创建结果
-                                // InviteUserInterface不直接修改 PeerPanel，由PeerPanel自己决定如何处理这些数据
-                                inviteUserInterface.groupCreationConfirmed( groupId, groupName, members )
-                                // 信号发出后关闭创建群聊窗口。
-                                inviteUserInterface.close()
+
+                                //先锁定按钮，避免重复点击
+                                inviteUserInterface.creationInProgress = true
+
+                                //只发送群名称和成员
+                                inviteUserInterface.groupCreationRequested( groupName, members)
                             }
                         }
                     }

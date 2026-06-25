@@ -35,6 +35,10 @@
 //         * 对整个窗口添加拖拽、放大、缩小，拉伸等功能，增加登录界面，可以一开始自定义名字
 //     [v0.2.1] JiangFan    2026-06-23
 //         * 增加群聊的右侧用户列表
+//     [v0.2.2] HeZhiyuan    2026-06-23
+//         * 接通群聊创建界面与AppController的调用流程
+//     [v0.2.3] HeZhiyuan    2026-06-25
+//         * 分离当前私聊状态和当前群聊状态，不再将群聊ID保存到currentPeerId
 
 import QtQuick
 import QtQuick.Controls
@@ -75,6 +79,12 @@ ApplicationWindow {
    property string currentGroupName: ""
    property bool currentIsGroup: false //当前会话是否为群聊
    property bool currentIsShrink: false //当前右侧用户列表是否收缩
+   //当前界面是否存在活动会话
+   readonly property bool hasActiveConversation: currentIsGroup ? currentGroupId.length > 0 : currentPeerId.length > 0
+   //当前会话ID
+   readonly property string currentConversationId: currentIsGroup ? currentGroupId : currentPeerId
+   //当前会话标题，私聊显示用户名，群聊显示群名
+   readonly property string currentConversationName: currentIsGroup ? currentGroupName : currentPeerName
 
    //当前待处理的文件接收请求
    property string pendingFileIp: ""
@@ -143,12 +153,6 @@ ApplicationWindow {
        }
    }
 
-   //当前群聊成员列表
-   ListModel {
-       id: groupMemberModel
-   }
-
-
    //判断文件大小，用于转换B/KB/MB/GB
    function fileSizeJudgement(fileSize){
        var size = 0
@@ -175,28 +179,39 @@ ApplicationWindow {
        }
    }
 
-   //校验当前会话和消息内容，并将发送请求交给AppController，网络发送和数据库保存均由C++控制层完成
-   function trySendMessage(content) {
-       //去除消息首尾空白，防止发送空白消息
-       content = content.trim()
+   //校验消息并根据当前会话类型交给C++发送
+   function trySendMessage(content)
+   {
+       const normalizedContent = content.trim()  //去掉消息首尾空白
 
-       //未选择用户或正文为空时不执行发送
-       if (root.currentPeerId === "") return
-       if (content.length === 0) return
+       //空消息不发送
+       if (normalizedContent.length === 0)
+           return
 
-       //将完整聊天对象信息和消息正文交给C++控制器
-       appController.sendMessage(
-           root.currentPeerId,
-           root.currentPeerName,
-           root.currentPeerIp,
-           content
-       )
-       console.log("发送给:", root.currentPeerId, root.currentPeerName, "内容:", content)
+       //当前是群聊时使用群ID发送
+       if (root.currentIsGroup) {
+           //群ID为空说明当前群会话无效
+           if (root.currentGroupId.length === 0)
+               return
+
+           //网络发送和数据库保存交给AppController
+           appController.sendGroupMessage(root.currentGroupId, normalizedContent)
+           return
+       }
+       //私聊必须存在有效用户ID
+       if (root.currentPeerId.length === 0)
+           return
+
+       //把私聊发送请求交给AppController
+       appController.sendMessage(root.currentPeerId, root.currentPeerName, root.currentPeerIp, normalizedContent)
    }
 
    //发送文件
    function trySendFile(fileUrl) {
-
+      if (root.currentIsGroup) {
+          console.log("当前群聊暂未实现群文件协议")
+          return
+      }
       if (root.currentPeerId === "")
       {
          console.log("请先选择聊天对象")
@@ -268,36 +283,42 @@ ApplicationWindow {
       console.log("自动登录成功！用户名： ", saveName)
    }
 
-   //打开群聊会话
-   function openGroupChat(groupId, groupName, members)
+   //打开指定群聊并加载群成员和群消息
+   function openGroupChat(groupId, groupName)
    {
-       //记录当前群聊状态
-       root.currentIsGroup = true
+       //没有有效群ID时不切换界面
+       if (groupId.length === 0)
+           return
+
+       //进入群聊前清理私聊状态
+       root.currentPeerId = ""
+       root.currentPeerName = ""
+       root.currentPeerIp = ""
+       appController.clearConversation()
+
+       //保存当前群聊状态
        root.currentGroupId = groupId
        root.currentGroupName = groupName
+       root.currentIsGroup = true
+       root.currentIsShrink = false
 
-       root.currentPeerId = groupId
-       root.currentPeerName = groupName
-       root.currentPeerIp = ""
-
-       //清空当前输入框
+       //清空上一个会话的输入内容
        inputPanel.clear()
 
-       //刷新群成员列表
-       groupMemberModel.clear()
-
-       for (var i = 0; i < members.length; i++)
-           groupMemberModel.append({
-              peerId: members[i].peerId,
-              username: members[i].username,
-              ip: members[i].ip,
-              online: members[i].online,
-              isSelf: members[i].isSelf
-           })
-
-       console.log("打开群聊：", groupId, groupName, "成员数：", members.length)
+       //通知C++读取群成员和群聊历史消息
+       appController.selectGroup(groupId)
    }
 
+   //关闭当前群聊并清理群聊界面状态
+   function closeGroupChat() {
+       root.currentGroupId = ""
+       root.currentGroupName = ""
+       root.currentIsGroup = false
+       root.currentIsShrink = false
+
+       inputPanel.clear()
+       appController.clearGroupConversation()
+   }
    //登录弹窗
    Window {
       id: loginWindow
@@ -619,32 +640,49 @@ ApplicationWindow {
 
                          //Window.qml当前选中的用户id传给PeerPanel，用于左侧高亮
                          currentPeerId: root.currentPeerId
-                         //用户列表数据直接来自AppController的peer属性
+
+                         currentGroupId: root.currentGroupId
+                         groupCandidateModel: appController.groupCandidates
+                         groupModel: appController.groups
                          peerModel: appController.peers
+
+                         //接收创建群聊窗口提交的群名称和成员列表
+                         onGroupCreationRequested: function(groupName, members)
+                         {
+                                //把创建操作交给C++控制器
+                                var groupId = appController.createGroup(groupName, members)
+
+                                //返回空字符串表示创建失败
+                                if (groupId.length === 0) {
+                                       peerPanel.finishGroupCreation(false,"",groupName)
+                                       return
+                                }
+
+                                //使用网络层返回的群ID完成前端状态更新
+                                peerPanel.finishGroupCreation(groupId.length > 0,groupId,groupName)
+                         }
 
                          //     [v0.1.2] HeZhiyuan    2026-06-03 16:37:40
                          //         * 用户点击左侧列表项后，这里会被调用
                          //并通知AppController从数据库读取该用户的历史消息
-                         onPeerSelected: function(peerId, username, ip) {
-                             //切换到另一个用户时，先清空当前前端消息
-                             if (root.currentPeerId !== peerId){
-                                 inputPanel.clear()
-                             }
+                         onPeerSelected: function(peerId, username, ip)
+                         {
+                                //从群聊切换到私聊时先清理群聊状态
+                                if (root.currentIsGroup){
+                                       root.closeGroupChat()
+                                }
+                                //切换到另一个用户时，先清空当前前端消息
+                                if (root.currentPeerId !== peerId){
+                                       inputPanel.clear()
+                                }
 
-                             //选择个人用户时，退出群聊状态
-                             root.currentGroupId = ""
-                             root.currentGroupName = ""
-                             root.currentIsGroup = false
-                             root.currentIsShrink = false
-                             groupMemberModel.clear()
-
-                             //保存当前会话所需的用户信息
-                             root.currentPeerId = peerId
-                             root.currentPeerName = username
-                             root.currentPeerIp = ip
-                             //通知控制器读取该用户的历史消息。
-                             appController.selectPeer(peerId)
-                             console.log("Main.qml 当前聊天对象:", peerId, username, ip)
+                                //保存当前会话所需的用户信息
+                                root.currentPeerId = peerId
+                                root.currentPeerName = username
+                                root.currentPeerIp = ip
+                                //通知控制器读取该用户的历史消息。
+                                appController.selectPeer(peerId)
+                                console.log("Main.qml 当前聊天对象:", peerId, username, ip)
                          }
 
                          //     [v0.1.2] HeZhiyuan    2026-06-04 20:47:45
@@ -672,13 +710,13 @@ ApplicationWindow {
                          }
 
                          //接收PeerPanel发出的群聊选择信号
-                         Connections {
-                             target: peerPanel
-
-                             function onGroupSelected(groupId, groupName, members){
-                                 root.openGroupChat(groupId, groupName, members)
-                             }
+                         onGroupSelected: function(groupId, groupName){
+                                 root.openGroupChat(groupId, groupName)
                          }
+                         onGroupClosed: {
+                             root.closeGroupChat()
+                         }
+
                      }
 
                      Rectangle {
@@ -708,7 +746,7 @@ ApplicationWindow {
                                     anchors.fill: parent
 
                                     color: "#FAFAFA"
-                                    visible: root.currentPeerId === ""
+                                    visible: !root.hasActiveConversation
 
                                     Text {
                                         text: qsTr("点击左侧用户开始聊天")
@@ -724,21 +762,19 @@ ApplicationWindow {
                                    anchors.fill:parent
                                    spacing: 0
 
-                                   visible: root.currentPeerId !== ""
+                                   visible: root.hasActiveConversation
 
                                    //右侧聊天窗口：点击左侧用户后才显示
                                    ChatPanel {
-                                      id: chatPanel
+                                       id: chatPanel
 
-                                      Layout.fillWidth: true
-                                      Layout.fillHeight: true
+                                       Layout.fillWidth: true
+                                       Layout.fillHeight: true
 
-                                      currentPeerId: root.currentPeerId
-                                      currentPeerName: root.currentPeerName
-
-                                      //把窗口中的消息模型传给聊天显示区
-                                      messageModel: appController.messages
-                                      color: "#FFFFFF"
+                                       currentPeerId: root.currentConversationId
+                                       currentPeerName: root.currentConversationName
+                                       isGroupChat: root.currentIsGroup
+                                       messageModel: root.currentIsGroup ? appController.groupMessages : appController.messages
                                    }
 
                                    //群成员列表
@@ -772,7 +808,7 @@ ApplicationWindow {
                                               color: "#FFFFFF"
 
                                               Text {
-                                                 text: qsTr("群成员： ") + groupMemberModel.count
+                                                 text: qsTr("群成员： ") + appController.groupMembers.length
                                                  font.pixelSize: 15
                                                  font.bold: true
                                                  color: "black"
@@ -798,9 +834,17 @@ ApplicationWindow {
                                              Layout.fillHeight: true
 
                                              clip: true
-                                             model: groupMemberModel
+                                             model: appController.groupMembers
 
                                              delegate: Rectangle {
+                                                 required property var modelData
+
+                                                 //从C++群成员模型读取显示所需字段
+                                                 readonly property string username: String(modelData.username)
+                                                 readonly property string ip: String(modelData.ip)
+                                                 readonly property bool online: Boolean(modelData.online)
+                                                 readonly property bool isSelf: Boolean(modelData.isSelf)
+
                                                  width: groupMemberListView.width
                                                  height: 50
 
@@ -843,7 +887,7 @@ ApplicationWindow {
                                                         Text {
                                                            Layout.fillWidth: true
 
-                                                           text: isSelf ? username + "(me)" : username
+                                                           text: username
                                                            font.pixelSize: 15
                                                            color: "#676767"
                                                            elide: Text.ElideRight
@@ -852,7 +896,6 @@ ApplicationWindow {
                                                         //群成员在线状态信息
                                                         RowLayout {
                                                            id: memberMessageLayout
-
                                                            Layout.fillWidth: true
                                                            Layout.fillHeight: true
 
@@ -929,19 +972,11 @@ ApplicationWindow {
                                  Layout.fillWidth: true
                                  Layout.preferredHeight: 200
 
-                                 visible: root.currentPeerId !== ""
-
-                                 currentPeerId: root.currentPeerId
-
-                                 onSendRequested: function(content) {
-                                     root.trySendMessage(content)
-                                 }
-
-                                 //处理文件按钮的点击
-                                 onFileSendRequested: function(fileUrl) {
-                                     root.trySendFile(fileUrl)
-                                 }
+                                 visible: root.hasActiveConversation
+                                 currentPeerId: root.currentConversationId
+                                 fileSendingEnabled: !root.currentIsGroup
                              }
+                            }
                          }
                      }
                  }
@@ -1150,8 +1185,6 @@ ApplicationWindow {
                  }
               }
           }
-      }
-
    //边缘拉伸
    Item {
        id: resizeArea

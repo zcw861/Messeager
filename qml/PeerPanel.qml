@@ -50,6 +50,11 @@
 *
 * *[v0.2.8] HeZhiyuan 2026-06-23
 * * 新增：左侧列表显示新创建的群聊
+* *[v0.2.9] HeZhiyuan 2026-06-23
+*   增加群聊创建请求的中转与结果处理流程
+* *[v0.3.0] HeZhiyuan 2026-06-23
+*   群聊列表改为使用AppController提供的真实群聊模型
+*   简化群聊创建请求的转发和创建结果处理流程
 */
 
 import QtQuick
@@ -84,93 +89,51 @@ Rectangle {
     //用户确认删除后，通知 Window.qml。
     signal peerDeleteRequested(string peerId)
 
-    //用户点击左侧群聊后，对外发送群聊信息
-    signal groupSelected(string groupId, string groupName, var members)
+    //InviteUserInterface提交创建请求后，PeerPanel转发给AppController
+    signal groupCreationRequested(string groupName, var members)
 
     //增加外部模型属性
     property var peerModel: []
+    //创建群聊窗口使用的候选成员
+    property var groupCandidateModel: []
+    //真实群聊模型来自appController.groups
+    property var groupModel: []
 
-    //模拟的群聊模型
-    ListModel {
-        id: temporaryGroupModel
-    }
+    //选择群聊时只传稳定的群ID和群名称
+    //成员由AppController根据groupId从数据库读取
+    signal groupSelected(string groupId,string groupName)
+
+    //再次点击当前群聊时关闭群会话
+    signal groupClosed()
 
     //当前右键选中的待删除用户。
     property string pendingDeletePeerId: ""
     property string pendingDeletePeerName: ""
 
-    //判断某个用户是否匹配当前搜索关键字
-    function matchSearch(username, ip)
-    {
-        if (searchKeyword.length == 0)
+    //判断两个显示字段中是否包含当前搜索关键字
+    function matchSearch(firstText, secondText) {
+        //没有输入搜索词时，所有项目都显示
+        if (searchKeyword.length === 0)
             return true
 
-        var keyword = searchKeyword.toLowerCase()
+        //统一使用小写进行不区分大小写的匹配
+        const keyword = searchKeyword.toLowerCase()
 
-        //用户名 / ip地址 里包含keyword
-        return username.toLowerCase().indexOf(keyword) !== -1 || ip.toLowerCase().indexOf(keyword) !== -1
+        //任意一个字段包含关键字即可显示
+        return firstText.toLowerCase().includes(keyword) || secondText.toLowerCase().includes(keyword)
     }
 
-    //根据groupId查找临时群聊
-    function findTemporaryGroupIndex(groupId)
-    {
-        for (var row = 0; row < temporaryGroupModel.count; ++row) {
-            var group = temporaryGroupModel.get(row)
-            if (group.groupId === groupId)
-                return row
-        }
-        return -1
+    //处理群聊创建结果
+    function finishGroupCreation(success, groupId, groupName) {
+        //恢复邀请窗口的按钮状态；创建成功时窗口会自行关闭
+        inviteUserInterface.finishCreation(success)
+
+        //创建失败时不切换会话
+        if (!success)
+            return
+        //通知Window.qml打开新创建的群聊
+        peerPanel.groupSelected(groupId, groupName)
     }
-
-    //根据成员数组生成成员摘要
-    function buildGroupMemberSummary(members)
-    {
-        var memberNames = []
-
-        for (var index = 0; index < members.length; ++index) {
-            var username = String(members[index].username).trim()
-            if (username.length > 0)
-                memberNames.push(username)
-        }
-        return memberNames.join("、")
-    }
-
-    //将新创建的群聊追加到前端临时模型
-    function addTemporaryGroup(groupId, groupName, members)
-    {
-        //群ID或群名称为空时，不允许追加
-        if (groupId.length === 0 || groupName.length === 0) {
-            console.log("临时群聊数据不完整")
-            return false
-        }
-
-        //当前需求规定群聊至少三人
-        if (!members || members.length < 3) {
-            console.log("群聊人数不足，不能加入模型")
-            return false
-        }
-
-        //防止同一个groupId被重复加入
-        if (findTemporaryGroupIndex(groupId) !== -1) {
-            console.log("临时群聊已经存在:", groupId)
-            return false
-        }
-
-        //ListModel主要保存适合delegate直接显示的基础数据
-        //members 是 JavaScript 数组，
-        //这里暂时序列化为 JSON 字符串保存，
-        //点击群聊时再解析回数组
-        temporaryGroupModel.append({
-            groupId: groupId,
-            groupName: groupName,
-            memberCount: members.length,
-            memberSummary: buildGroupMemberSummary(members),
-            membersJson: JSON.stringify(members)
-        })
-        console.log("临时群聊已加入左侧列表:", groupId, groupName)
-        return true
-    }
-
     ColumnLayout {
         id: peerLayout
 
@@ -265,15 +228,10 @@ Rectangle {
 
                         MenuItem{
                             text: qsTr("创建群聊")
-                            /*
-                            TapHandler{
-                                onTapped: inviteUserInterfaceLoader.item.show()
-                            }
-                            */
                             //MenuItem本身就是可以点击的控件 并自带triggered信号,所以不应该用TapHandler
                             onTriggered: {
                                 peerPanel.clearSearchFocus()
-                                inviteUserInterfaceLoader.item.show()
+                                inviteUserInterface.show()
                             }
 
                         }
@@ -295,74 +253,64 @@ Rectangle {
             Layout.leftMargin: 10
             Layout.topMargin: 5
 
-            visible: temporaryGroupModel.count > 0
-
+            visible: peerPanel.groupModel && peerPanel.groupModel.length > 0
             text: qsTr("群聊")
             font.pixelSize: 15
             font.bold: true
             color: "#333333"
         }
 
-        //前端临时群聊列表
+        //显示群聊列表
         ListView {
             id: groupListView
-            Layout.fillWidth: true
-            //每个群聊项约62像素
-            //最多显示三个群聊的高度，超过后使用滚动
-            Layout.preferredHeight:
-                Math.min(temporaryGroupModel.count * 62, 186)
 
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(peerPanel.groupModel.length * 62, 186)
             Layout.topMargin: 4
 
-            visible: temporaryGroupModel.count > 0
+            visible: peerPanel.groupModel && peerPanel.groupModel.length > 0
 
             clip: true
             spacing: 6
 
-            model: temporaryGroupModel
+            model: peerPanel.groupModel
 
-            delegate: Item {
+            delegate: RowLayout {
                 id: groupDelegate
-                //required property和temporaryGroupModel.append()中的字段对应
-                required property int index
-                required property string groupId
-                required property string groupName
-                required property int memberCount
-                required property string memberSummary
-                required property string membersJson
 
-                //群名称或成员摘要匹配搜索内容时显示
+                required property var modelData
+
+                readonly property string groupId: String(modelData.groupId)
+                readonly property string groupName: String(modelData.groupName)
+                readonly property int memberCount: Number(modelData.memberCount)
+                readonly property string memberSummary: String(modelData.memberSummary)
                 readonly property bool matched: peerPanel.matchSearch(groupName, memberSummary)
 
                 width: ListView.view.width
                 height: matched ? 56 : 0
-
                 visible: matched
-                enabled: matched
+                spacing: 0
 
                 Rectangle {
                     id: groupItem
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: 10
-                    anchors.rightMargin: 10
 
-                    height: parent.height
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.leftMargin: 10
+                    Layout.rightMargin: 10
 
-                    radius: 10
+                    color: peerPanel.currentGroupId === groupDelegate.groupId ? "#E8F3FF" : groupHoverHandler.hovered ? "#EEEEEE" : "#F5F5F5"
 
-                    //当前群聊选中时使用蓝色背景；否则根据悬停状态改变背景
-                    color: peerPanel.currentGroupId=== groupDelegate.groupId ? "#E8F3FF"
-                                                    : groupHoverHandler.hovered ? "#EEEEEE" : "#F5F5F5"
                     border.width: 1
 
-                    border.color: peerPanel.currentGroupId === groupDelegate.groupId ? "#9BCBFF"
-                                             : groupHoverHandler.hovered ? "#D0D0D0" : "#E0E0E0"
+                    border.color:
+                        peerPanel.currentGroupId === groupDelegate.groupId ? "#9BCBFF" : groupHoverHandler.hovered ? "#D0D0D0" : "#E0E0E0"
+
                     RowLayout {
-                        anchors.fill: parent
+                        width: parent.width
+                        height: parent.height
                         spacing: 10
 
-                        //群聊头像
                         Rectangle {
                             Layout.preferredWidth: 34
                             Layout.preferredHeight: 34
@@ -373,15 +321,19 @@ Rectangle {
                             color: "#D8ECFF"
 
                             Text {
-                                anchors.centerIn: parent
+                                width: parent.width
+                                height: parent.height
+
                                 text: qsTr("群")
                                 color: "#357ABD"
                                 font.pixelSize: 14
                                 font.bold: true
+
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
                             }
                         }
 
-                        //群名称和成员摘要
                         ColumnLayout {
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignVCenter
@@ -391,20 +343,18 @@ Rectangle {
                                 Layout.fillWidth: true
 
                                 text: groupDelegate.groupName
+
                                 color: "#1F2329"
                                 font.pixelSize: 13
                                 font.bold: true
-
-                                //群名过长时显示省略号
                                 elide: Text.ElideRight
                             }
 
                             Text {
                                 Layout.fillWidth: true
 
-                                text: groupDelegate.memberCount
-                                      + "人 · "
-                                      + groupDelegate.memberSummary
+                                //使用arg()组合人数和成员
+                                text: qsTr("%1人 · %2").arg(groupDelegate.memberCount).arg(groupDelegate.memberSummary)
 
                                 color: "#6B7280"
                                 font.pixelSize: 11
@@ -412,54 +362,36 @@ Rectangle {
                             }
                         }
 
-                        //保留右侧间距
                         Item {
                             Layout.preferredWidth: 4
                         }
                     }
+
                     HoverHandler {
                         id: groupHoverHandler
-                        cursorShape: Qt.PointingHandCursor
+                        cursorShape:
+                            Qt.PointingHandCursor
                     }
 
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
-                        gesturePolicy:
-                            TapHandler.ReleaseWithinBounds
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
 
                         onTapped: {
-                            //再次点击当前已经选中的群聊，只取消本地高亮
+                            //再次点击当前群聊时关闭会话
                             if (peerPanel.currentGroupId === groupDelegate.groupId) {
-                                peerPanel.currentGroupId = ""
-
-                                //告诉Window.qml清空右侧聊天区域
-                                peerPanel.peerClosed()
-
-                                console.log( "取消选择群聊:",groupDelegate.groupId )
+                                peerPanel.groupClosed()
                                 return
                             }
 
-                            //记录当前选中的群聊
-                            peerPanel.currentGroupId = groupDelegate.groupId
-
-                            //如果此前正在显示私聊，通知 Window.qml 清除当前私聊
-                            // 这样不会同时出现：私聊用户高亮 + 群聊高亮
-                            if (peerPanel.currentPeerId.length > 0)
-                                peerPanel.peerClosed()
-
-                            //将JSON字符串恢复为成员数组
-                            var members = JSON.parse( groupDelegate.membersJson )
-
-                            //向外发送群聊选择结果
-                            peerPanel.groupSelected(
-                                        groupDelegate.groupId,
-                                        groupDelegate.groupName,
-                                        members
-                                        )
-
-                            console.log("选择群聊:", groupDelegate.groupId, groupDelegate.groupName)
+                            //通知Window.qml打开选中的群聊
+                            peerPanel.groupSelected(groupDelegate.groupId, groupDelegate.groupName)
                         }
                     }
+                }
+
+                Item {
+                    Layout.preferredWidth: 10
                 }
             }
         }
@@ -677,42 +609,15 @@ Rectangle {
         }
     }
 
-    Loader {
-        id: inviteUserInterfaceLoader
-        source: "InviteUserInterface.qml"
+    InviteUserInterface {
+        id: inviteUserInterface
 
-        //接收InviteUserInterface发出的群聊创建
-        //Connections会在item可用后自动连接对应信号
-        Connections {
-            id: inviteUserInterfaceConnections
-            target: inviteUserInterfaceLoader.item   //指向Loader当前加载出来的对象
+        //声明式绑定，groupCandidateModel变化时会自动更新
+        candidateSourceModel: peerPanel.groupCandidateModel
 
-            function onGroupCreationConfirmed(groupId,groupName,members){
-                //将新群聊加入PeerPanel的前端临时模型
-                var added = peerPanel.addTemporaryGroup( groupId, groupName, members)
-                if (!added)
-                    return
-
-                //创建成功后立即选中新群聊
-                peerPanel.currentGroupId = groupId
-
-                //如果正在私聊，关闭私聊
-                if (peerPanel.currentGroupId.length > 0)
-                    peerPanel.peerClosed()
-
-                //通知Window.qml打开群聊
-                peerPanel.groupSelected(groupId, groupName, members)
-
-                //传递新群聊信息给Window.qml
-                peerPanel.groupSelected(groupId, groupName, members)
-
-                //暂时不调用AppController，也不写入数据库
-                console.log("PeerPanel 收到群聊创建结果")
-                console.log("临时群 ID:", groupId)
-                console.log("默认群名称:", groupName)
-                console.log("群成员数量:", members.length)
-                console.log("群成员数据:", JSON.stringify(members))
-            }
+        //邀请窗口只产生创建请求，PeerPanel继续转发给Window.qml
+        onGroupCreationRequested: function(groupName, members) {
+            peerPanel.groupCreationRequested(groupName, members)
         }
     }
 

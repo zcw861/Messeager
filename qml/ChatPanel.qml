@@ -29,6 +29,9 @@
 * [v0.2.5] JiangFan   2026-06-20
 * * 重构：使用Layout管理主窗口结构
 * * 修复：消息滚动条和消息内容重合的bug
+* [v0.2.6] HeZhiyuan   2026-06-25
+* * 使用私聊消息模型和群聊消息模型显示当前会话历史
+* * 群聊中显示其他成员的发送者名称
 */
 
 import QtQuick
@@ -42,6 +45,7 @@ Rectangle{
     property string currentPeerId: ""
     property string currentPeerName: "请选择用户"
     property var messageModel: null //MessageWindow.qml 传入的消息模型
+    property bool isGroupChat: false
 
     color: "#FFFFFF"
 
@@ -123,47 +127,78 @@ Rectangle{
                     })
                 }
 
-                delegate: Item {
+                delegate: ColumnLayout {
+                    id: messageDelegate
+
                     required property var modelData
 
-                    readonly property bool fromMe:
-                        modelData.fromMe
-
-                    readonly property string content:
-                        modelData.content
+                    readonly property bool fromMe: Boolean(modelData.fromMe)
+                    readonly property string content: String(modelData.content)
+                    readonly property string senderName: modelData.senderName ? String(modelData.senderName) : ""
 
                     width: messageList.width
-                    height: messageBubble.height + 8
+                    spacing: 3
 
-                    //使用 required property 接收 ListModel 角色数据
-                    // required property bool fromMe
-                    // required property string content
+                    //私聊不显示发送者名称
+                    //群聊中自己的消息不重复显示自己名称
+                    Text {
+                        visible: root.isGroupChat && !messageDelegate.fromMe
+                        text: messageDelegate.senderName
+                        Layout.alignment: Qt.AlignLeft
 
-                    Rectangle {
-                        id: messageBubble
+                        color: "#6B7280"
+                        font.pixelSize: 11
+                    }
 
-                        width: Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
-                        height: messageText.implicitHeight + 18
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
 
-                        //自己发送的消息靠右
-                        x: fromMe ? parent.width - width : 0
+                        //自己发送时，将气泡推向右侧。
+                        Item {
+                            visible: messageDelegate.fromMe
 
-                        radius: 8
-                        color: fromMe ? "#12B7F5" : "#FFFFFF"
+                            Layout.fillWidth: true
+                        }
 
-                        Text {
-                            id: messageText
+                        Rectangle {
+                            id: messageBubble
 
-                            text: content
-                            font.pixelSize: 14
-                            color: fromMe ? "#FFFFFF" : "#222222"
+                            Layout.maximumWidth: messageList.width * 0.7
 
-                            width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
-                            wrapMode: Text.Wrap
+                            Layout.preferredWidth: Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
 
-                            anchors.left: parent.left
-                            anchors.leftMargin: 12
-                            anchors.verticalCenter: parent.verticalCenter
+                            Layout.preferredHeight: messageText.implicitHeight + 18
+
+                            radius: 8
+
+                            color:messageDelegate.fromMe ? "#12B7F5" : "#FFFFFF"
+
+                            Text {
+                                id: messageText
+
+                                width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
+
+                                height: implicitHeight
+
+                                x: 12
+                                y: 9
+
+                                text: messageDelegate.content
+
+                                font.pixelSize: 14
+
+                                color: messageDelegate.fromMe ? "#FFFFFF" : "#222222"
+
+                                wrapMode: Text.Wrap
+                            }
+                        }
+
+                        //他人发送时，将气泡保留在左侧。
+                        Item {
+                            visible: !messageDelegate.fromMe
+
+                            Layout.fillWidth: true
                         }
                     }
                 }
@@ -171,7 +206,6 @@ Rectangle{
                 //提供右侧垂直滚动条，用来显示当前滚动位置
                 ScrollBar.vertical: ScrollBar {
                     parent: messageArea   //这一句很必要，不加的话，它下面都没用，会被messageList自动管理
-                                          //但如果直接放到上一级作为messageArea的孩子的话，就不会和messageList绑定
                     anchors.top: messageList.top
                     anchors.bottom: messageList.bottom
                     anchors.left: messageList.right

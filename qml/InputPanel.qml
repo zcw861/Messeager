@@ -13,6 +13,10 @@
 //         *  更改消息发送框（文件、发送按钮、文本框）的形式，增加ScrollView,支持输入框滑动
 //     [v0.1.5] JiangFan    2026-06-20
 //         *  重构：使用Layout管理主窗口结构
+//     [v0.1.6] HeZhiyuan   2026-06-25
+//         * 输入面板支持私聊ID和群聊ID作为统一的当前会话ID
+//           统一空消息检查、发送请求和发送后清空输入框的处理流程
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -23,6 +27,9 @@ Item {
 
     //MessageWindow.qml传当前聊天对象id
     property string currentPeerId: ""
+
+    //群聊当前没有群文件传输协议时，Window.qml传入false。
+    property bool fileSendingEnabled: true
 
     //输入框向外通知：请求发送一条消息
     signal sendRequested(string content)
@@ -111,7 +118,7 @@ Item {
                     height: 30
                     radius: 10
 
-                    enabled: root.currentPeerId !== ""
+                    enabled: root.currentPeerId !== "" && root.fileSendingEnabled
                     opacity: enabled ? 1 : 0.5
 
                     color: fileButtonHover.hovered && fileButton.enabled ? "#F2F3F5" : "#FFFFFF"
