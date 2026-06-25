@@ -177,6 +177,8 @@ Item {
                    TextArea {
                        id: inputArea
 
+                       color: "black"
+
                        placeholderText: qsTr("请输入消息......")
                        font.pixelSize: 14
                        wrapMode: TextEdit.Wrap

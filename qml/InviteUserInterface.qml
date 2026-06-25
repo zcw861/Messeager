@@ -281,6 +281,7 @@ Window {
                 TextField {
                     id: searchField
 
+                    color: "black"
                     Layout.fillWidth: true
                     Layout.preferredHeight: 30
                     Layout.topMargin: 10
