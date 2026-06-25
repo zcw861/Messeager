@@ -880,6 +880,7 @@ ApplicationWindow {
                                                  readonly property string ip: String(modelData.ip)
                                                  readonly property bool online: Boolean(modelData.online)
                                                  readonly property bool isSelf: Boolean(modelData.isSelf)
+
                                                  id: memberDelegate
 
                                                  property bool showMemberInfo: false //是否显示小弹窗（成员信息卡片），由悬浮以及悬浮时间决定
@@ -983,6 +984,7 @@ ApplicationWindow {
                                                            id: memberMessageLayout
                                                            Layout.fillWidth: true
                                                            Layout.fillHeight: true
+
                                                            //头像
                                                            Rectangle {
                                                               Layout.preferredHeight: 60
@@ -996,7 +998,6 @@ ApplicationWindow {
                                                                  text: username.length > 0 ? username.charAt(0) : "?"
                                                                  font.pixelSize: 40
                                                                  color: "green"
-
                                                                  anchors.centerIn: parent
                                                               }
                                                            }
@@ -1022,7 +1023,7 @@ ApplicationWindow {
 
                                                                //群成员在线状态信息
                                                                RowLayout {
-
+                                                                  // id: memberMessageLayout
                                                                   Layout.fillWidth: true
                                                                   Layout.fillHeight: true
 

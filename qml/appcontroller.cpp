@@ -168,10 +168,10 @@ QVariantList AppController::groupCandidates() const
     return candidates;
 }
 
+//返回当前选中私聊对象的消息
 QVariantList AppController::messages() const
 {
-    return m_messages    //群聊候选成员发生变化后，通知QML重新读取groupCandidates。
-;
+    return m_messages;
 }
 
 //返回已经加载到控制器中的群聊列表缓存
