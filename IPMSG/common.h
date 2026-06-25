@@ -7,7 +7,10 @@
 //         * 添加消息结构体，区别消息类型
 //         * 添加序列化/反序列化函数，便于在网络中传输消息
 //         * 添加构建TCP/UDP网络包的辅助函数
-
+//     [v0.1.2] HeZhiyuan    2026-06-23 22:06:14
+//         * 统一群聊协议常量
+//     [v0.1.3] ZhouChengWei    2026-06-25 17:34:15
+//         * 完善群聊协议(握手，数据)
 #pragma once
 
 #include <netinet/in.h>
@@ -15,25 +18,33 @@
 #include <string>
 #include <cstring>
 #include <chrono>
+#include <cstdint>
+#include <vector>
 
-#define UDP_PORT 45454  //UDP端口
-#define TCP_PORT 45455  //TCP端口
-#define FILE_PORT 45456 //文件传输端口
+#define UDP_PORT 45454          //UDP端口
+#define TCP_PORT 45455          //TCP端口
+#define FILE_PORT 45456         //文件传输端口
 #define MESSAGE_BUF_SIZE 1024   //消息缓冲区大小
 #define FILE_BUF_SIZE 8192      //文件缓冲区大小
 
 
 //UDP消息类型(0x10 ~ 0x2F)
-#define MSG_TYPE_UDP_BROADCAST  0x10   //广播发现用户
-#define MSG_TYPE_UDP_UNICAST    0x11   //单播邀请（群聊）
-#define MSG_TYPE_UDP_ACK        0x12   //邀请应答
+#define MSG_TYPE_UDP_BROADCAST   0x10   //广播发现用户
+#define MSG_TYPE_UDP_UNICAST     0x11   //单播邀请（群聊）
+#define MSG_TYPE_UDP_ACK         0x12   //邀请应答
 
 //TCP消息类型(0x30 ~ 0x4F)
-#define MSG_TYPE_TCP_PRIVATE    0x30   //普通私聊消息
-#define MSG_TYPE_TCP_GROUP      0x31   //群聊消息
-#define MSG_TYPE_TCP_FILE_REQ   0x32   //文件请求
-#define MSG_TYPE_TCP_FILE_ACK   0x33   //文件接受/拒绝
-#define MSG_TYPE_TCP_FILE_DATA  0x34   //文件数据块
+#define MSG_TYPE_TCP_PRIVATE     0x30   //普通私聊消息
+#define MSG_TYPE_TCP_GROUP       0x31   //群聊消息
+#define MSG_TYPE_TCP_FILE_REQ    0x32   //文件请求
+#define MSG_TYPE_TCP_FILE_ACK    0x33   //文件接受/拒绝
+#define MSG_TYPE_TCP_FILE_DATA   0x34   //文件数据块
+#define MSG_TYPE_TCP_GROUP_HELLO 0x35   //群聊连接握手
+#define MSG_TYPE_TCP_GROUP_DATA  0x36   //群聊消息数据
+#define MSG_TYPE_TCP_GROUP_ACK   0x37   //群聊TCP握手确认
+
+//单个TCP载荷允许的最大字节数（1MB）
+#define MAX_TCP_PAYLOAD_SIZE (1024 * 1024)
 
 //用户结构体
 struct UserInfo
@@ -75,7 +86,7 @@ inline std::string serializeMsgData(const MsgData& msg){
 //从二进制载荷反序列化MsgData
 //data：二进制数据起始地址
 //len：数据总长度（字节）
-//返回反序列化后的MsgData结构体（字段不完整时可能为空字符串）
+//返回反序列化后的MsgData结构体
 inline MsgData deserializeMsgData(const char* data, size_t len) {
     MsgData msg;
     size_t offset = 0;
@@ -99,9 +110,6 @@ inline MsgData deserializeMsgData(const char* data, size_t len) {
 
 //构建UDP网络包
 //格式：1字节类型 + 变长载荷字符串
-//type：消息类型
-//payload：载荷字符串（如 "ID:用户名"）
-//返回字节向量，可直接传给sendto()
 inline std::vector<uint8_t> buildUdpPacket(uint8_t type, const std::string& payload) {
     std::vector<uint8_t> pkt;
     pkt.push_back(type);    //写入类型字节
@@ -111,9 +119,6 @@ inline std::vector<uint8_t> buildUdpPacket(uint8_t type, const std::string& payl
 
 //构建TCP网络包
 //格式：1字节类型 + 4字节载荷长度（网络字节序） + 载荷数据
-//type：消息类型
-//payload：载荷数据（序列化后的MsgData）
-//返回字节向量，可直接传给send()
 inline std::vector<uint8_t> buildTcpPacket(uint8_t type, const std::string& payload) {
     std::vector<uint8_t> pkt;
     pkt.push_back(type);    //写入类型字节
