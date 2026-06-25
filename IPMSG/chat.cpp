@@ -23,6 +23,8 @@
 //         * 把收发消息全部重构为MsgData（见common.h)类型，以便区分消息类型，为群聊做准备
 //     [v0.2.3] ZhouChengWei    2026-06-23 15:20:14
 //         * 广播消息分为发现用户和群聊邀请
+//     [v0.2.4] ZhouChengWei    2026-06-25 17:25:08
+//         * 处理了群聊连接，将处理权交给群聊模块
 
 #include "chat.h"
 #include "groupchat.h"
@@ -216,10 +218,8 @@ void Chat::sendMessageToUser(const QString &id, const QString &msg)
     }).detach();
 }
 
-void Chat::emitMessageReceived(const std::string &id,
-                                      const std::string &name,
-                                      const std::string &ip,
-                                      const std::string &msg)
+void Chat::emitMessageReceived(const std::string &id, const std::string &name,
+                               const std::string &ip, const std::string &msg)
 {
     //线程安全地发射信号到主线程（由于不是使用QThread,只能通过QMetaObject::invokeMethod间接发射信号）
     QMetaObject::invokeMethod(this, [this, id, name, ip, msg](){
@@ -305,7 +305,7 @@ void Chat::listenThread()
         std::string payload(buffer + 1, n - 1);
         std::string ip = inet_ntoa(sender.sin_addr);
 
-        if(type == MSG_TYPE_UDP_BROADCAST){
+        if(type == MSG_TYPE_UDP_BROADCAST){ //发现用户
             //解析"ID:用户名"
             size_t colonPos = payload.find(':');
             if (colonPos == std::string::npos) continue;
@@ -320,31 +320,67 @@ void Chat::listenThread()
                 m_peers[userId] = {userName, ip, now, userId};
             }
 
-            QMetaObject::invokeMethod(this, [this]() {
+            QMetaObject::invokeMethod(this, [this](){
                 emit onlineUsersChanged();
             }, Qt::QueuedConnection);
 
             std::cout << "发现用户: " << userName << " ID:" << userId << " (" << ip << ")" << std::endl;
-        }else if (type == MSG_TYPE_UDP_UNICAST) {
-            //解析"群ID:邀请者ID:邀请者名字"
-            size_t pos1 = payload.find(':');
-            size_t pos2 = payload.find(':', pos1 + 1);
-            if (pos1 == std::string::npos || pos2 == std::string::npos) continue;
+        }else if(type == MSG_TYPE_UDP_UNICAST){ //群聊邀请
 
-            std::string groupId = payload.substr(0, pos1);
-            std::string inviterId = payload.substr(pos1 + 1, pos2 - pos1 - 1);
-            std::string inviterName = payload.substr(pos2 + 1);
+            std::vector<std::string> lines;
+            std::size_t start = 0;
 
-            QMetaObject::invokeMethod(this, [this, groupId, inviterId, inviterName, ip]() {
-                emit groupInviteReceived(
-                    QString::fromStdString(groupId),
-                    QString::fromStdString(inviterId),
-                    QString::fromStdString(inviterName),
-                    QString::fromStdString(ip));
-            }, Qt::QueuedConnection);
+            while(start <= payload.size()) {
+                const std::size_t end = payload.find('\n', start);
+
+                //如果没找到换行符，说明已到达最后一行
+                if(end == std::string::npos){
+                    lines.push_back(payload.substr(start));
+                    break;
+                }
+                //否则读一行
+                lines.push_back(payload.substr(start, end - start));
+                start = end + 1;    //+1跳过换行符
+            }
+
+            if(lines.size() < 5){
+                continue;
+            }
+
+            std::string groupId = lines[0];       //群ID
+            std::string groupName = lines[1];     //群名字
+            std::string inviterId = lines[2];     //邀请者ID
+            std::string inviterName = lines[3];   //邀请者名字
+
+            int memberCount = 0;
+
+            memberCount = std::stoi(lines[4]);    //成员数量
+
+            //成员数量必须大于3,并且除了前5行头部外至少还有memberCount成员的信息
+            if(memberCount < 3 || lines.size() < static_cast<std::size_t>(5 + memberCount)){
+                continue;
+            }
+
+            QStringList memberRecords;
+            //预先分配空间，避免后续逐个添加成员时反复扩容
+            memberRecords.reserve(memberCount);
+
+            for(int index = 0; index < memberCount; ++index){
+                memberRecords.push_back(QString::fromStdString(lines[5 + index]));
+            }
+
+            //不在Chat中直接修改GroupChat，AppController必须先保存数据库，再恢复GroupChat会话。
+            QMetaObject::invokeMethod(this,
+                [this,groupId,groupName,inviterId,inviterName,ip,memberRecords]() {
+                    emit groupInviteReceived(QString::fromStdString(groupId),
+                                             QString::fromStdString(groupName),
+                                             QString::fromStdString(inviterId),
+                                             QString::fromStdString(inviterName),
+                                             QString::fromStdString(ip),
+                                             memberRecords);
+            },Qt::QueuedConnection);
         }
     }
-
     close(listenfd);
     std::cout << "UDP监听线程已退出" << std::endl;
 }
@@ -415,19 +451,34 @@ void Chat::tcpServerThread()
 
             std::string ip = inet_ntoa(client_address.sin_addr);
 
-            if(type == MSG_TYPE_TCP_PRIVATE){
+            if(type == MSG_TYPE_TCP_PRIVATE){   //私聊消息
                 //反序列化MsgData
                 MsgData msg = deserializeMsgData(buf.data(), payloadLen);
                 //发射信号
                 emitMessageReceived(msg.senderId, msg.senderName, ip, msg.message);
-            }else if(type == MSG_TYPE_TCP_GROUP){
-                //为群聊消息做准备
+            }else if(type == MSG_TYPE_TCP_GROUP_HELLO){ //群聊连接
+                if(!m_groupChat){
+                    close(clientfd);
+                    return;
+                }
+
+                std::string helloPayload(buf.begin(), buf.end());
+
+                //群聊长连接交给GroupChat
+                QMetaObject::invokeMethod(m_groupChat, [this,clientfd,helloPayload,ip](){
+                        m_groupChat->handleConnection(clientfd,helloPayload,ip);
+                    },Qt::QueuedConnection);
+                return;
             }
 
+            if(type == MSG_TYPE_TCP_GROUP_DATA){    //群消息
+                //群消息只能出现在已经完成HELLO握手，并由GroupChat接管的TCP长连接上
+                close(clientfd);
+                return;
+            }
             close(clientfd);
         }).detach();
     }
-
     close(serverfd);
     std::cout << "TCP服务器线程已退出" << std::endl;
 }
@@ -468,4 +519,9 @@ QString Chat::localId() const {
 
 QString Chat::localName() const{
     return QString::fromStdString(m_localName);
+}
+
+void Chat::setGroupChat(GroupChat *groupChat)
+{
+    m_groupChat = groupChat;
 }

@@ -76,7 +76,6 @@ AppController::AppController(QObject *parent)
     //文件传输完成
     connect(&m_translateFile, &TranslateFile::fileTransferFinished, this, &AppController::fileTransferFinished
     );
-
 }
 
 AppController::~AppController()

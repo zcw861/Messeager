@@ -29,6 +29,7 @@
 
 #include <QObject>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QUuid>
 
 #include <unordered_map>
@@ -55,6 +56,7 @@ public:
     void sendMessageToUser(const QString &ip, const QString &msg);  //发送消息
 
     bool setLocalId(const QString &localId);    //在网络线程启动前设置本机永久ID
+    void setGroupChat(GroupChat *groupChat);
 
     QString localIp() const;    //提供本机IP
     QString localId() const;    //提供本机ID
@@ -62,9 +64,15 @@ public:
 
 signals:
     void onlineUsersChanged();  //通知在线用户变化
-    void messageReceived(const QString &fromId, const QString &fromName, const QString &fromIp, const QString &message);   //通知收到消息
-    void groupInviteReceived(const QString &groupId, const QString &inviterId,
-                             const QString &inviterName, const QString &inviterIp);     //收到群聊邀请
+
+    //通知收到消息
+    void messageReceived(const QString &fromId, const QString &fromName,
+                         const QString &fromIp, const QString &message);
+
+    //收到群聊邀请
+    void groupInviteReceived(const QString &groupId, const QString &groupName,
+                             const QString &inviterId, const QString &inviterName,
+                             const QString &inviterIp, const QStringList &memberRecords);
 
 private:
     void broadcastThread();     //广播线程
@@ -73,7 +81,8 @@ private:
     void cleanOfflineThread();  //清理离线用户线程
 
     //线程安全的信号发射
-    void emitMessageReceived(const std::string &id, const std::string &name, const std::string &ip, const std::string &msg);
+    void emitMessageReceived(const std::string &id, const std::string &name,
+                             const std::string &ip, const std::string &msg);
 
     std::unordered_map<std::string, UserInfo> m_peers;  //id与用户的映射
     mutable std::mutex m_mutex; //锁，用于并发时保护m_peers的资源访问
@@ -89,4 +98,6 @@ private:
 
     int m_udp_listenFd = -1;
     int m_tcp_serverFd = -1;
+
+    GroupChat *m_groupChat = nullptr;
 };
