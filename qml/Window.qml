@@ -1105,6 +1105,18 @@ ApplicationWindow {
                                  visible: root.hasActiveConversation
                                  currentPeerId: root.currentConversationId
                                  fileSendingEnabled: !root.currentIsGroup
+
+                                 //接收InputPanel发出的文本消息发送请求。
+                                 onSendRequested: function(content) {
+                                     //由Window统一判断当前会话是私聊还是群聊，再调用对应的C++接口。
+                                     root.trySendMessage(content)
+                                 }
+
+                                 //接收InputPanel发出的文件发送请求。
+                                 onFileSendRequested: function(fileUrl) {
+                                     //由Window检查当前是否为私聊，再将文件发送请求交给C++。
+                                     root.trySendFile(fileUrl)
+                                 }
                              }
                             }
                          }
