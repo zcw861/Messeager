@@ -1,7 +1,7 @@
 // Module
 // File: databasecheck.h   Version: 0.1.0   License: AGPLv3
 // Created: HeZhiyuan      2026-06-24 14:19:53
-// Description: 定义数据库层数据检查函数
+// Description: 定义数据库层统一使用的数据校验和规范化工具
 //
 #pragma once
 #include <QString>

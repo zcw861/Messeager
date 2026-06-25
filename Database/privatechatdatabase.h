@@ -1,3 +1,8 @@
+// Module
+// File: privatechatdatabase.h   Version: 0.1.0   License: AGPLv3
+// Created: HeZhiyuan      2026-06-24 14:58:02
+// Description: 定义私聊消息表初始化、消息保存和历史记录读取接口
+//
 #pragma once
 
 #include <QString>
@@ -10,8 +15,8 @@ class DatabaseCore;
 class DATABASE_EXPORT PrivateChatDatabase final
 {
 public:
-    explicit PrivateChatDatabase(
-        DatabaseCore &databaseCore);
+    //保存DatabaseCore引用并使用SQLite连接
+    explicit PrivateChatDatabase(DatabaseCore &databaseCore);
 
     //创建私聊消息表和索引
     bool initSchema();

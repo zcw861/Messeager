@@ -1,3 +1,8 @@
+// Module
+// File: groupchatdatabase.cpp   Version: 0.1.0   License: AGPLv3
+// Created: HeZhiyuan      2026-06-24
+// Description:    添加群聊、群成员和群消息相关的函数
+//
 #include "groupchatdatabase.h"
 
 #include "databasecore.h"
@@ -12,9 +17,11 @@ GroupChatDatabase::GroupChatDatabase(DatabaseCore &databaseCore)
     : m_databaseCore(databaseCore)
 {}
 
+//创建群聊基本信息表、群成员表、群消息表和相关索引，在同一事务中创建，任何一步失败都会回滚，避免数据库只存在部分群聊结构
 bool GroupChatDatabase::initSchema()
 {
     m_lastError.clear();
+    //取得DatabaseCore管理的连接
     QSqlDatabase database = m_databaseCore.database();
 
     if (!database.isValid() || !database.isOpen()) {
@@ -23,6 +30,7 @@ bool GroupChatDatabase::initSchema()
         return false;
     }
 
+    //开启表结构初始化事务
     if (!database.transaction()) {
         m_lastError = database.lastError().text();
         return false;
@@ -127,6 +135,7 @@ bool GroupChatDatabase::initSchema()
     return true;
 }
 
+//查询群ID是否存在
 bool GroupChatDatabase::groupExists(const QString &groupId, bool &exists)
 {
     m_lastError.clear();
@@ -141,6 +150,7 @@ bool GroupChatDatabase::groupExists(const QString &groupId, bool &exists)
         return false;
     }
 
+    //删除群ID首尾空白
     const QString normalizedGroupId = groupId.trimmed();
 
     if (!DatabaseCheck::isValidGroupId(normalizedGroupId)) {
@@ -149,8 +159,10 @@ bool GroupChatDatabase::groupExists(const QString &groupId, bool &exists)
         return false;
     }
 
+    //创建查询对象
     QSqlQuery query(database);
 
+    //只查询常量1并限制一条记录
     const QString sql = R"(
         SELECT 1
         FROM chat_groups
@@ -170,13 +182,13 @@ bool GroupChatDatabase::groupExists(const QString &groupId, bool &exists)
         return false;
     }
 
-    //query.next()为true：存在记录，query.next()为false：不存在记录
+    //true：存在记录，false：不存在记录
     exists = query.next();
 
     return true;
 }
 
-//创建一个群聊，并保存全部群成员
+//校验群ID、群名称、创建者和成员列表，并保存群聊及全部成员
 bool GroupChatDatabase::createGroup(const QString &groupId,
                                   const QString &groupName,
                                   const QString &creatorId,
@@ -198,6 +210,7 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
 
     const QString normalizedGroupId = groupId.trimmed();
     const QString normalizedGroupName = groupName.trimmed();
+    //校验群主UUID
     const QString normalizedCreatorId = DatabaseCheck::normalizePeerId(creatorId);
 
     if (!DatabaseCheck::isValidGroupId(normalizedGroupId)) {
@@ -222,12 +235,16 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
         return false;
     }
 
+    //保存已经出现的成员ID
     QSet<QString> memberIds;
+    //保存校验后的成员数据
     QVariantList normalizedMembers;
+    //预留与输入列表相同的大小，减少添加过程中的重新分配
     normalizedMembers.reserve(members.size());
-
+    //记录创建者是否包含在成员列表中
     bool creatorIncluded = false;
 
+    //逐个校验群成员
     for (const QVariant &item : members) {
         const QVariantMap member = item.toMap();
 
@@ -250,7 +267,9 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
             return false;
         }
 
+        //记录当前成员ID
         memberIds.insert(memberId);
+        //判断当前成员是否为创建者
         creatorIncluded = creatorIncluded || memberId == normalizedCreatorId;
 
         QVariantMap normalizedMember;
@@ -266,7 +285,7 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
     }
 
 
-    //群ID已经存在时，只允许同一创建者重复写入
+    //群ID已经存在时，只允许创建者重复写入
     QSqlQuery existingQuery(database);
 
     const QString existingSql = R"(
@@ -300,9 +319,10 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
         return false;
     }
 
+    //创建保存群聊基本信息的查询对象
     QSqlQuery groupQuery(database);
 
-    //  重复邀请时更新群名称和创建者
+    //重复邀请时更新群名称和创建者
     const QString upsertGroupSql = R"(
         INSERT INTO chat_groups(
             group_id,
@@ -341,7 +361,7 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
         return false;
     }
 
-    //邀请可能重复到达
+    //邀请可能重复到达，创建清理旧成员关系的查询对象，用最新成员列表整体替换旧列表
     QSqlQuery deleteMembersQuery(database);
 
     const QString deleteMembersSql = R"(
@@ -362,6 +382,7 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
         return false;
     }
 
+    //创建可重复执行的成员插入查询对象
     QSqlQuery memberQuery(database);
 
     const QString insertMemberSql = R"(
@@ -387,6 +408,7 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
         return false;
     }
 
+    //从0开始记录成员显示顺序
     int memberOrder = 0;
 
     for (const QVariant &item : normalizedMembers) {
@@ -477,6 +499,7 @@ bool GroupChatDatabase::loadGroups(QVariantList &groups)
         return false;
     }
 
+    //群列表汇总查询
     QSqlQuery query(database);
 
     const QString sql = R"(
@@ -615,7 +638,7 @@ bool GroupChatDatabase::loadGroupMembers(const QString &groupId, QVariantList &m
     while (query.next()) {
         QVariantMap member;
 
-        //把当前群ID一起返回，方便检查这些成员属于哪个群
+        //把群ID一起返回，方便检查这些成员属于哪个群
         member.insert(QStringLiteral("groupId"), normalizedGroupId);
 
         member.insert(QStringLiteral("peerId"), query.value(0).toString());
@@ -753,7 +776,7 @@ bool GroupChatDatabase::saveGroupMessage(const QString &groupId,
         return false;
     }
 
-    //这里去除群id首尾空白
+    //去除群id首尾空白
     const QString normalizedGroupId = groupId.trimmed();
 
     //发送者id是用户的peerId，执行UUID格式校验和标准化
@@ -833,6 +856,7 @@ bool GroupChatDatabase::saveGroupMessage(const QString &groupId,
         m_lastError = QStringLiteral("开启群消息保存事务失败：") + database.lastError().text();
         return false;
     }
+    //创建群消息插入查询对象
     QSqlQuery insertQuery(database);
     const QString insertSql = R"(
         INSERT INTO group_messages(
@@ -881,6 +905,7 @@ bool GroupChatDatabase::saveGroupMessage(const QString &groupId,
     //保存消息后更新群聊最近活动时间
     //loadGroups()当前按照updated_at倒序排列
     //更新后该群就能够移动到群聊列表顶部
+    //创建群聊活动时间更新查询
     QSqlQuery updateGroupQuery(database);
 
     const QString updateGroupSql = R"(

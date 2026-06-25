@@ -1,3 +1,8 @@
+// Module
+// File: peerdatabase.cpp   Version: 0.1.0   License: AGPLv3
+// Created: HeZhiyuan      2026-06-24
+// Description:
+//
 #include "peerdatabase.h"
 
 #include "databasecore.h"
@@ -12,6 +17,7 @@ PeerDatabase::PeerDatabase(DatabaseCore &databaseCore)
 {
 }
 
+//创建本机永久ID表和用户信息表，并在同一事务中提交
 bool PeerDatabase::initSchema()
 {
     m_lastError.clear();
@@ -30,6 +36,7 @@ bool PeerDatabase::initSchema()
         return false;
     }
 
+    //定义本机ID表结构
     const QString createLocalPeerIdSql = R"(
         CREATE TABLE IF NOT EXISTS local_peer_id(
             id INTEGER PRIMARY KEY CHECK(id = 1),
@@ -37,12 +44,13 @@ bool PeerDatabase::initSchema()
         )
     )";
 
+    //执行本机身份表建表SQL
     if (!m_databaseCore.execute(createLocalPeerIdSql, m_lastError)) {
         database.rollback();
         return false;
     }
 
-    //CHECK(length(trim(username)) > 0)防止向数据库写入空用户名或全空格用户名
+    //定义用户表结构和字段约束，CHECK(length(trim(username)) > 0)防止向数据库写入空用户名或全空格用户名
     const QString createPeersSql = R"(
         CREATE TABLE IF NOT EXISTS peers(
             peer_id TEXT PRIMARY KEY,
@@ -53,11 +61,13 @@ bool PeerDatabase::initSchema()
         )
     )";
 
+    //执行用户表建表SQL
     if (!m_databaseCore.execute(createPeersSql, m_lastError)) {
         database.rollback();
         return false;
     }
 
+    //提交两张表的结构事务，只有全部结构创建成功后修改才正式生效
     if (!database.commit()) {
         m_lastError = database.lastError().text();
         database.rollback();
@@ -158,6 +168,7 @@ bool PeerDatabase::loadOrCreateLocalPeerId( const QString &candidatePeerId, QStr
     return true;
 }
 
+//读取全部用户记录，在线用户优先，同状态用户按名称不区分大小写排序
 bool PeerDatabase::loadPeers(QVariantList &peers)
 {
     m_lastError.clear();
@@ -173,6 +184,7 @@ bool PeerDatabase::loadPeers(QVariantList &peers)
         return false;
     }
 
+    //创建用户列表查询对象
     QSqlQuery query(database);
 
     const QString sql = R"(
@@ -193,6 +205,7 @@ bool PeerDatabase::loadPeers(QVariantList &peers)
         return false;
     }
 
+    //逐行遍历查询结果，把数据库记录转换为QVariantMap
     while (query.next()) {
         QVariantMap peer;
 
@@ -213,6 +226,7 @@ bool PeerDatabase::loadPeers(QVariantList &peers)
     return true;
 }
 
+//插入新用户或按peerId更新已有用户的名称、IP、在线状态
 bool PeerDatabase::upsertPeer(const QString &peerId, const QString &username, const QString &ip, bool online)
 {
     m_lastError.clear();
@@ -224,6 +238,7 @@ bool PeerDatabase::upsertPeer(const QString &peerId, const QString &username, co
         return false;
     }
 
+    //校验并统一peerId格式
     const QString normalizedPeerId = DatabaseCheck::normalizePeerId(peerId);
 
     const QString normalizedUsername = username.trimmed();
@@ -247,6 +262,7 @@ bool PeerDatabase::upsertPeer(const QString &peerId, const QString &username, co
 
     QSqlQuery query(database);
 
+    //定义更新语句
     const QString sql = R"(
         INSERT INTO peers(
             peer_id,
@@ -272,6 +288,7 @@ bool PeerDatabase::upsertPeer(const QString &peerId, const QString &username, co
             OR peers.ip <> excluded.ip
             OR peers.online <> excluded.online
     )";
+    //预处理UPSERT，可以提前发现SQL错误并允许参数安全绑定
     if (!query.prepare(sql)) {
         m_lastError = query.lastError().text();
         return false;

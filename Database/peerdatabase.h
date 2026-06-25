@@ -1,7 +1,7 @@
 // Module
 // File: peerdatabase.h   Version: 0.1.0   License: AGPLv3
 // Created: HeZhiyuan      2026-06-24 15:05:25
-// Description:     建立用户数据库
+// Description:     定义本机身份和用户信息相关的数据库操作
 //
 #pragma once
 
