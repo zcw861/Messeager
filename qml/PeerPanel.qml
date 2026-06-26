@@ -55,6 +55,8 @@
 * *[v0.3.0] HeZhiyuan 2026-06-23
 *   群聊列表改为使用AppController提供的真实群聊模型
 *   简化群聊创建请求的转发和创建结果处理流程
+* *[v0.3.1] HeZhiyuan 2026-06-26
+*   完善群聊卡片边框与用户统一，增加点击、悬停时的颜色变化
 */
 
 import QtQuick
@@ -277,9 +279,10 @@ Rectangle {
 
             model: peerPanel.groupModel
 
-            delegate: RowLayout {
+            delegate: Rectangle {
                 id: groupDelegate
 
+                //接收当前群聊模型项
                 required property var modelData
 
                 readonly property string groupId: String(modelData.groupId)
@@ -288,114 +291,119 @@ Rectangle {
                 readonly property string memberSummary: String(modelData.memberSummary)
                 readonly property bool matched: peerPanel.matchSearch(groupName, memberSummary)
 
-                width: ListView.view.width
+                //判断当前群聊是否处于选中状态
+                property bool selected: peerPanel.currentGroupId === groupId
+
+                width: groupListView.width - 20
                 height: matched ? 56 : 0
+                radius: 10
+                //将卡片放置在列表水平方向的中央，使左右各留出10像素
+                anchors.horizontalCenter: parent.horizontalCenter
                 visible: matched
-                spacing: 0
+                //选中的群聊使用浅蓝色背景，鼠标悬停时使用浅灰色背景，其余情况使用默认背景
+                color: selected ? "#E8F3FF" : groupHoverHandler.hovered ? "#EEEEEE" : "#F5F5F5"
 
-                Rectangle {
-                    id: groupItem
+                //选中的群聊使用浅蓝色边框，鼠标悬停时使用灰色边框，其余情况使用默认边框
+                border.color: selected ? "#9BCBFF" : groupHoverHandler.hovered ? "#D0D0D0" : "#E0E0E0"
 
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.leftMargin: 10
-                    Layout.rightMargin: 10
+                //设置一像素边框，使卡片边界更加清晰。
+                border.width: 1
 
-                    color: peerPanel.currentGroupId === groupDelegate.groupId ? "#E8F3FF" : groupHoverHandler.hovered ? "#EEEEEE" : "#F5F5F5"
+                RowLayout {
+                    width: parent.width
+                    height: parent.height
+                    spacing: 10
 
-                    border.width: 1
+                    Rectangle {
+                        Layout.preferredWidth: 34
+                        Layout.preferredHeight: 34
+                        Layout.leftMargin: 10
+                        Layout.alignment: Qt.AlignVCenter
 
-                    border.color:
-                        peerPanel.currentGroupId === groupDelegate.groupId ? "#9BCBFF" : groupHoverHandler.hovered ? "#D0D0D0" : "#E0E0E0"
+                        radius: 17
+                        color: "#D8ECFF"
 
-                    RowLayout {
-                        width: parent.width
-                        height: parent.height
-                        spacing: 10
+                        Text {
+                            width: parent.width
+                            height: parent.height
 
-                        Rectangle {
-                            Layout.preferredWidth: 34
-                            Layout.preferredHeight: 34
-                            Layout.leftMargin: 10
-                            Layout.alignment: Qt.AlignVCenter
+                            text: qsTr("群")
+                            color: "#357ABD"
+                            font.pixelSize: 14
+                            font.bold: true
 
-                            radius: 17
-                            color: "#D8ECFF"
-
-                            Text {
-                                width: parent.width
-                                height: parent.height
-
-                                text: qsTr("群")
-                                color: "#357ABD"
-                                font.pixelSize: 14
-                                font.bold: true
-
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
+                    }
 
-                        ColumnLayout {
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 2
+
+                        Text {
                             Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignVCenter
-                            spacing: 2
 
-                            Text {
-                                Layout.fillWidth: true
+                            text: groupDelegate.groupName
 
-                                text: groupDelegate.groupName
-
-                                color: "#1F2329"
-                                font.pixelSize: 13
-                                font.bold: true
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-
-                                //使用arg()组合人数和成员
-                                text: qsTr("%1人 · %2").arg(groupDelegate.memberCount).arg(groupDelegate.memberSummary)
-
-                                color: "#6B7280"
-                                font.pixelSize: 11
-                                elide: Text.ElideRight
-                            }
+                            color: "#1F2329"
+                            font.pixelSize: 13
+                            font.bold: true
+                            elide: Text.ElideRight
                         }
 
-                        Item {
-                            Layout.preferredWidth: 4
+                        Text {
+                            Layout.fillWidth: true
+
+                            //使用arg()组合人数和成员
+                            text: qsTr("%1人 · %2").arg(groupDelegate.memberCount).arg(groupDelegate.memberSummary)
+
+                            color: "#6B7280"
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
                         }
                     }
 
-                    HoverHandler {
-                        id: groupHoverHandler
-                        cursorShape:
-                            Qt.PointingHandCursor
-                    }
-
-                    TapHandler {
-                        acceptedButtons: Qt.LeftButton
-                        gesturePolicy: TapHandler.ReleaseWithinBounds
-
-                        onTapped: {
-                            //再次点击当前群聊时关闭会话
-                            if (peerPanel.currentGroupId === groupDelegate.groupId) {
-                                peerPanel.groupClosed()
-                                return
-                            }
-
-                            //通知Window.qml打开选中的群聊
-                            peerPanel.groupSelected(groupDelegate.groupId, groupDelegate.groupName)
-                        }
+                    Item {
+                        Layout.preferredWidth: 4
                     }
                 }
 
-                Item {
-                    Layout.preferredWidth: 10
+                HoverHandler {
+                    id: groupHoverHandler
+                    cursorShape:
+                        Qt.PointingHandCursor
+                }
+
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                    onTapped: {
+                        //清除搜索框焦点，使点击群聊后的交互行为与点击用户一致
+                        peerPanel.clearSearchFocus()
+
+                        //再次点击当前群聊时关闭会话
+                        if (peerPanel.currentGroupId === groupDelegate.groupId) {
+                            peerPanel.currentGroupId = ""
+                            peerPanel.groupClosed()
+                            return
+                        }
+
+                        //将当前群聊ID保存到PeerPanel
+                        peerPanel.currentGroupId = groupDelegate.groupId
+
+                        //通知Window.qml打开选中的群聊
+                        peerPanel.groupSelected(groupDelegate.groupId, groupDelegate.groupName)
+                    }
                 }
             }
+
+            Item {
+                Layout.preferredWidth: 10
+            }
+
         }
 
         Text {
