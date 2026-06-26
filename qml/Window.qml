@@ -42,6 +42,11 @@
 //         *修复更改名字左边用户列表名字不同步的问题
 //     [v0.2.4] HeZhiyuan    2026-06-25
 //         * 分离当前私聊状态和当前群聊状态，不再将群聊ID保存到currentPeerId
+//     [v0.2.5] HeZhiyuan    2026-06-26
+//         * 将登录功能分离出去，用Login.qml单独管理
+//     [v0.2.6] HeZhiyuan    2026-06-26
+//         * 调整程序启动时的登录窗口显示流程
+//           主窗口在登录成功前保持隐藏，登录成功后通过isLogin显示
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -51,8 +56,9 @@ import QtQuick.Layouts
 ApplicationWindow {
     id: root
 
+    //启动登录流程
     Component.onCompleted: {
-        root.autoLogin()
+        loginWindow.beginLogin()
     }
 
     width: 1000
@@ -60,7 +66,7 @@ ApplicationWindow {
     minimumWidth: 800
     minimumHeight: 500
 
-    visible: true
+    visible: isLogin
 
     title: "Messager 信使"
     flags: Qt.Window | Qt.FramelessWindowHint //隐藏顶部默认菜单栏，但是需要自己实现窗口缩放（暂时还没有实现）
@@ -239,52 +245,6 @@ ApplicationWindow {
             root.showMaximized()
     }
 
-    //登录函数
-    function login() {
-        var userName = loginNameField.text.trim()
-
-        if(userName.length === 0){
-            loginErrorText.text = qsTr("用户名不能为空！")
-            return
-        }
-
-        if(!appController.initialize(userName)){
-            loginErrorText.text = qsTr("登录失败！")
-            console.log("登录失败！")
-            return
-        }
-
-        root.myName = userName
-        root.isLogin = true
-        root.myIp = appController.localIp()
-        loginWindow.close()
-
-        console.log("登录成功！用户名： ", userName)
-    }
-
-    //自动登录函数:如果此前保存过用户名，则直接自动登录
-    function autoLogin() {
-        var saveName = appController.savedUserName()
-
-        if(saveName.length === 0)
-        {
-            console.log("未保存过此用户")
-            return
-        }
-
-        if(!appController.initialize(saveName))
-        {
-            console.log("自动登录失败")
-            return
-        }
-
-        root.myName = saveName
-        root.isLogin = true
-        root.myIp = appController.localIp()
-
-        console.log("自动登录成功！用户名： ", saveName)
-    }
-
     //打开指定群聊并加载群成员和群消息
     function openGroupChat(groupId, groupName)
     {
@@ -350,85 +310,23 @@ ApplicationWindow {
         console.log("用户名写入数据库成功：", name)
     }
 
-    //登录弹窗
-    Window {
+    //登录窗口
+    Login {
         id: loginWindow
 
-        width: 250
-        height: 200
-        visible: !root.isLogin
+        //登录组件不会再次创建数据库和网络控制器
+        controller: appController
 
-        title: qsTr("登录")
-        color: "white"
+        //接收Login.qml登录成功后返回的用户名和本机IP
+        onLoginSucceeded: function(userName, localIp) {
+            root.myName = userName
 
-        Rectangle {
-            anchors.fill: parent
-            color: "white"
-            border.color: "#DDDDDD"
-            border.width: 1
+            root.myIp = localIp
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 20
-                spacing: 10
+            //标记已经登录
+            root.isLogin = true
 
-                Text {
-                    text: qsTr("请输入用户名：")
-                    font.pixelSize: 15
-                    font.bold: true
-                    color: "black"
-
-                    Layout.alignment: Qt.AlignHCenter
-                }
-
-                //用户名输入框
-                TextField {
-                    id: loginNameField
-
-                    color: "black"
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 30
-
-                    placeholderText: qsTr("用户名")
-
-                    onAccepted: {
-                        root.login()
-                    }
-                }
-
-                //这个目前无法正常使用
-                // //显示当前ip
-                // Text {
-                //     text: qsTr("当前IP: ") + (root.myIp.length > 0 ? root.myIp : qsTr("未获取到IP"))
-                //     font.pixelSize: 15
-                //     color: "black"
-                // }
-
-                //错误提示（默认不显示）
-                Text {
-                    id: loginErrorText
-                    text: ""
-                    color: "red"
-                }
-
-                //登录按钮
-                Button {
-                    text: qsTr("登录")
-
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 30
-
-                    onClicked: {
-                        root.login()
-                    }
-                }
-            }
-        }
-
-        //关闭登录界面 且 没有登录
-        onClosing: function(close){
-            if(!root.isLogin)
-                Qt.quit()
+            console.log("登录成功！用户名：", userName, "本机IP：", localIp)
         }
     }
 
