@@ -3,6 +3,9 @@
 // Created: HeZhiyuan      2026-06-24
 // Description:    添加群聊、群成员和群消息相关的函数
 //
+//     [v0.1.1] ZhouChengWei     2026-06-26 16:42:35
+//         * 修改了群成员表的名字获取从用户表里获取，实现了修改名字时同步显示到群成员列表里
+
 #include "groupchatdatabase.h"
 
 #include "databasecore.h"
@@ -596,7 +599,7 @@ bool GroupChatDatabase::loadGroupMembers(const QString &groupId, QVariantList &m
     const QString sql = R"(
         SELECT
             gm.peer_id,
-            gm.username,
+            p.username,
             gm.member_order,
             gm.joined_at,
             COALESCE(p.ip, '') AS current_ip,

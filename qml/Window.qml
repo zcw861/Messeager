@@ -42,11 +42,16 @@
 //         *修复更改名字左边用户列表名字不同步的问题
 //     [v0.2.4] HeZhiyuan    2026-06-25
 //         * 分离当前私聊状态和当前群聊状态，不再将群聊ID保存到currentPeerId
+//     [v0.2.5] ZhouChengWei    2026-06-26
+//         * 修改了群聊界面群成员收起/展开按钮的样貌
+//         * 不是群聊界面取消了文件按钮
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import se.qt.messager
 import QtQuick.Layouts
+import QtQuick.Shapes
 
 ApplicationWindow {
     id: root
@@ -82,7 +87,8 @@ ApplicationWindow {
     property bool currentIsGroup: false //当前会话是否为群聊
     property bool currentIsShrink: false //当前右侧用户列表是否收缩
     //当前界面是否存在活动会话
-    readonly property bool hasActiveConversation: currentIsGroup ? currentGroupId.length > 0 : currentPeerId.length > 0
+    readonly property bool hasActiveConversation: currentIsGroup ? currentGroupId.length > 0
+                                                                 : currentPeerId.length > 0
     //当前会话ID
     readonly property string currentConversationId: currentIsGroup ? currentGroupId : currentPeerId
     //当前会话标题，私聊显示用户名，群聊显示群名
@@ -959,7 +965,7 @@ ApplicationWindow {
                                                 Popup {
                                                     id: memberInfoPopup
 
-                                                    visible: memberDelegate.showMemberInfo //悬浮 + 悬浮时间 共同决定显示
+                                                    visible: memberDelegate.showMemberInfo //悬浮 + 悬浮时间共同决定显示
 
                                                     //在列表左边
                                                     x: -width
@@ -994,7 +1000,8 @@ ApplicationWindow {
                                                                 color: isSelf ? "#D8ECFF" : "#EEEEEE"
 
                                                                 Text {
-                                                                    text: username.length > 0 ? username.charAt(0) : "?"
+                                                                    text: username.length > 0 ? username.charAt(0)
+                                                                                              : "?"
                                                                     font.pixelSize: 40
                                                                     color: "green"
                                                                     anchors.centerIn: parent
@@ -1055,29 +1062,34 @@ ApplicationWindow {
                             }
 
                             //群聊右侧用户列表收缩按钮
-                            Rectangle {
+                            Shape {
                                 id: shrinkButton
-
-                                color: shrinkButtonHover.hovered ? "#F2F3F5" : "#FFFFFF"
+                                opacity: shrinkButtonHover.hovered ? 0.8 : 0.5
+                                height: 40; width: 10; z:2
 
                                 visible: currentIsGroup && root.currentGroupId !== ""
-                                    && (groupMemberHover.hovered || shrinkButtonHover.hovered || root.currentIsShrink)
-                                    //不加按钮的这个悬浮的话，准备点击的时候回瞬间消失 OvO
-
-                                height: 30
-                                width: 15
-                                z:2
+                                    && (groupMemberHover.hovered || shrinkButtonHover.hovered ||
+                                        root.currentIsShrink)
+                                    //不加按钮的这个悬浮的话，准备点击的时候会瞬间消失 OvO
                                 anchors.verticalCenter: parent.verticalCenter
                                 anchors.right: parent.right
                                 anchors.rightMargin: root.currentIsShrink ? 2 : 150
 
-                                border.color: "#E0E0E0"
-                                border.width: 1
+                                ShapePath {
+                                    strokeWidth: 1
+                                    strokeColor: "#e2e2e2"
+                                    fillColor: "#e2e2e2"
+                                    startX: 0; startY: 10      // 左底上端点（窄端上角）
+                                    PathLine { x: 10; y: 0 }   // 右底上端点（宽端上角）— 上腰
+                                    PathLine { x: 10; y: 40 }  // 右底下端点（宽端下角）— 右底边
+                                    PathLine { x: 0; y: 30 }   // 左底下端点（窄端下角）— 下腰
+                                    PathLine { x: 0; y: 10 }
+                                }
 
                                 Text {
                                     anchors.centerIn: parent
-                                    text: currentIsShrink ? "<" : ">"
-                                    font.pixelSize: 20
+                                    text: currentIsShrink ? ">" : "<"
+                                    font.pixelSize: 11
                                 }
 
                                 HoverHandler {
@@ -1104,6 +1116,8 @@ ApplicationWindow {
                             visible: root.hasActiveConversation
                             currentPeerId: root.currentConversationId
                             fileSendingEnabled: !root.currentIsGroup
+                            isVisibleFileButton: !root.currentIsGroup
+
 
                             //接收InputPanel发出的文本消息发送请求。
                             onSendRequested: function(content) {

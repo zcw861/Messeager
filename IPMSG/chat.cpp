@@ -25,6 +25,8 @@
 //         * 广播消息分为发现用户和群聊邀请
 //     [v0.2.4] ZhouChengWei    2026-06-25 17:25:08
 //         * 处理了群聊连接，将处理权交给群聊模块
+//     [v0.2.5] ZhouChengWei     2026-06-26 16:44:18
+//         * 实现设置名字的函数，同时优化了广播时的包构建逻辑，由原来的只构建第一次包改为每次发送时都构建，用于向对方同步自己的名字
 
 #include "chat.h"
 #include "groupchat.h"
@@ -249,13 +251,17 @@ void Chat::broadcastThread()
     address.sin_port = htons(UDP_PORT);
     address.sin_addr.s_addr = inet_addr("255.255.255.255");
 
-    //广播载荷：ID:用户名
-    std::string broadcastPayload = m_localId + ":" + m_localName;
-    auto packet = buildUdpPacket(MSG_TYPE_UDP_BROADCAST, broadcastPayload);
-
     std::cout << "UDP广播线程已启动" << std::endl;
 
     while(m_running){
+        //广播载荷：ID:用户名
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            std::string localName = m_localName;
+        }
+        std::string broadcastPayload = m_localId + ":" + m_localName;
+        auto packet = buildUdpPacket(MSG_TYPE_UDP_BROADCAST, broadcastPayload);
+
         sendto(listenfd, packet.data(), packet.size(), 0,
                (struct sockaddr*)&address, sizeof(address));
         sleep(2);  //每2秒广播一次
@@ -524,4 +530,17 @@ QString Chat::localName() const{
 void Chat::setGroupChat(GroupChat *groupChat)
 {
     m_groupChat = groupChat;
+}
+
+void Chat::setLocalName(const QString &name)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_localName = name.toStdString();
+    }
+
+    //发送信号同步前端自己的名字
+    QMetaObject::invokeMethod(this, [this](){
+        emit onlineUsersChanged();
+    }, Qt::QueuedConnection);
 }

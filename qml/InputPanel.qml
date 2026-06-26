@@ -16,6 +16,8 @@
 //     [v0.1.6] HeZhiyuan   2026-06-25
 //         * 输入面板支持私聊ID和群聊ID作为统一的当前会话ID
 //           统一空消息检查、发送请求和发送后清空输入框的处理流程
+//     [v0.1.7] ZhouChengWei    2026-06-26
+//         * 不是群聊界面取消了文件按钮
 
 import QtQuick
 import QtQuick.Controls
@@ -30,6 +32,9 @@ Item {
 
     //群聊当前没有群文件传输协议时，Window.qml传入false。
     property bool fileSendingEnabled: true
+
+    //不是群聊时才显示文件按钮
+    property bool isVisibleFileButton: true
 
     //输入框向外通知：请求发送一条消息
     signal sendRequested(string content)
@@ -86,7 +91,6 @@ Item {
         color: "#FFFFFF"
         anchors.fill: parent
 
-
         ColumnLayout {
             id: inputLayout
 
@@ -104,7 +108,7 @@ Item {
             //输入工具栏：文件、表情、截图等功能入口
             Rectangle {
                 id: toolBar
-
+                visible: isVisibleFileButton
                 Layout.fillWidth: true
                 Layout.preferredHeight: 38
 

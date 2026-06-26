@@ -24,6 +24,8 @@
 //         * 新增：setLocalId()，允许控制层在网络线程启动前设置UUID
 //     [v0.2.2] ZhouChengWei    2026-06-23 15:20:14
 //         * 增加了群聊邀请信号
+//     [v0.2.3] ZhouChengWei     2026-06-26 16:43:48
+//         * 新增设置名字的函数
 
 #pragma once
 
@@ -60,7 +62,9 @@ public:
 
     QString localIp() const;    //提供本机IP
     QString localId() const;    //提供本机ID
-    QString localName() const;  //提供本机名字
+    QString localName() const; //
+
+    void setLocalName(const QString &name);
 
 signals:
     void onlineUsersChanged();  //通知在线用户变化

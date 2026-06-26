@@ -31,7 +31,8 @@
 //     [v0.2.0] HeZhiyuan    2026-06-24 21:33:10
 //         * 适配拆分后的数据库访问层
 //           将原有DatabaseManager调用替换为对应的数据访问类调用
-
+//     [v0.2.1] ZhouChengWei     2026-06-26 16:40:55
+//         * 优化了修改名字时需要重新登录对方才会显示的逻辑，现在修改之后对方就会收到新名字
 
 #include "appcontroller.h"
 
@@ -765,7 +766,6 @@ void AppController::handleGroupInviteReceived(const QString &groupId,
     //判断收到邀请的群聊是否正是界面当前打开的群聊
     if (m_currentGroupId == normalizedGroupId) {
         refreshGroupMembers();
-
         refreshGroupMessages();
     }
 
@@ -1117,7 +1117,8 @@ void AppController::synchronizeOnlineUsers()
 
         const QString peerId = networkUser.value(QStringLiteral("id")).toString().trimmed();
 
-        //优先将数据库的名字为主，不然旧的广播会覆盖数据库，具体效果可以删掉下面这个if语句查看
+        //优先将数据库的名字为主，不然旧的广播会覆盖数据库，具体效果可以删掉下面这个if语句查看（2026.6.26已修改by周城伟）
+        //通过前端改名字时同名网络层的m_localName解决，此前因为广播发送的名字一直用的第一次构造的，现在每次发送都会构造
         QString name = networkUser.value(QStringLiteral("name")).toString().trimmed();
 
         if (peerId == m_chat.localId()) {
@@ -1365,6 +1366,7 @@ bool AppController::updateMyName(const QString &newName)
     }
 
     const QString name = newName.trimmed();
+    m_chat.setLocalName(newName);
 
     if (name.isEmpty()) {
         reportError(QStringLiteral("用户名不能为空"));
