@@ -29,6 +29,7 @@ qt_add_qml_module(appMessager
                 Window.qml
                 InputPanel.qml
                 InviteUserInterface.qml
+                Login.qml
     RESOURCES
                 ../source/file.svg
 
