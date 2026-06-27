@@ -21,6 +21,9 @@
 //         * 添加了退出群聊/解散群聊的函数
 //         * 修改了清理函数，现在会同步清理m_connectings，防止退群后下次不能进群聊了
 //         * 添加用于保存正在清理的连接，防止多线程调用清理函数时清理一个连接2次
+//     [v0.2.2] ZhouChengWei    2026-06-27 22:18:44
+//         * 修改了退出群聊的逻辑，现在发送tcp通知群友自己已经退群，实现了对方群成员会擦除自己
+//         * 同时修改了处理群消息函数，退群之后优先断开TCP连接，之后不会再收到对方的消息
 
 #include "groupchat.h"
 #include "chat.h"
@@ -694,49 +697,62 @@ void GroupChat::epollLoop()
             int fd = events[i].data.fd;
             uint32_t event = events[i].events;
 
-            //错误或挂起事件
-            if ((event & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0) {
-                cleanupFd(fd);
-                continue;
-            }
 
-            //没数据可读时跳过
-            if ((event & EPOLLIN) == 0) {
-                continue;
-            }
+            //记录当前连接是否有可读数据。
+            bool hasReadableEvent = (event & EPOLLIN) != 0;
 
+            //记录对端是否已经关闭连接或关闭写方向。
+            bool hasCloseEvent = (event & (EPOLLHUP | EPOLLRDHUP)) != 0;
+
+            //记录当前连接是否出现套接字错误。
+            bool hasErrorEvent = (event & EPOLLERR) != 0;
+
+            //记录recv过程中是否确认连接已经断开。
             bool disconnected = false;
 
             //循环读取，直到EAGAIN或对端关闭，将数据存入接收缓冲区
-            while (true) {
-                ssize_t received = recv(fd, readBuffer.data(), readBuffer.size(), 0);
-                if (received > 0) {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    std::vector<uint8_t> &buffer = m_receiveBuffers[fd];
-                    buffer.insert(buffer.end(), readBuffer.begin(), readBuffer.begin() + received);
-                    continue;
-                }
+            if (hasReadableEvent || hasCloseEvent) {
+                while (true) {
+                    ssize_t received = recv(fd, readBuffer.data(), readBuffer.size(), 0);
+                    if (received > 0) {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        auto bufferIt = m_receiveBuffers.find(fd);
+                        //连接可能已经被其他清理流程移除，此时不能重新创建空缓冲区。
+                        if (bufferIt == m_receiveBuffers.end()) {
+                            disconnected = true;
+                            break;
+                        }
+                        bufferIt->second.insert(bufferIt->second.end(), readBuffer.begin(), readBuffer.begin() + received);
+                        continue;
+                    }
 
-                //对端关闭连接
-                if (received == 0) {
+                    //对端关闭连接
+                    if (received == 0) {
+                        disconnected = true;
+                        break;
+                    }
+
+                    if (errno == EINTR) { continue; }
+
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) { //本次数据已读完
+                        break;
+                    }
+
                     disconnected = true;
                     break;
                 }
-
-                if (errno == EINTR) {
-                    continue;
-                }
-
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {     //本次数据已读完
-                    break;
-                }
-
-                disconnected = true;
-                break;
             }
 
-            //如果连接断开或解析失败，则清理该连接
-            if (disconnected || !handleBufferedFrames(fd)) {
+            //默认认为当前数据帧解析成功。
+            bool parseSucceeded = true;
+
+            //必须在清理连接之前解析已经读取到缓冲区中的数据。
+            if (hasReadableEvent || hasCloseEvent) {
+                parseSucceeded = handleBufferedFrames(fd);
+            }
+
+            //数据解析完成后，再统一清理关闭、错误或解析失败的连接。
+            if (hasErrorEvent || hasCloseEvent || disconnected || !parseSucceeded) {
                 cleanupFd(fd);
             }
         }
@@ -793,10 +809,20 @@ bool GroupChat::handleBufferedFrames(int fd)
 
         //群消息
         if (type == MSG_TYPE_TCP_GROUP_DATA) {
-            MsgData message = deserializeMsgData(reinterpret_cast<const char *>(payload.data()),
-                                                 payload.size());
+            MsgData message = deserializeMsgData(reinterpret_cast<char*>(payload.data()), payload.size());
             if (message.targetId != groupId || message.senderId != memberId || message.message.empty()) {
                 return false;
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+
+                auto sessionIt = m_sessions.find(groupId);
+
+                //群会话已经删除，或者该连接对应的用户已经不属于本群时，拒绝该消息并关闭连接
+                if (sessionIt == m_sessions.end() || !sessionIt->second.members.contains(memberId)) {
+                    return false;
+                }
             }
 
             //将消息发送到主线程
@@ -809,32 +835,89 @@ bool GroupChat::handleBufferedFrames(int fd)
         //退群消息
         }else if (type == MSG_TYPE_TCP_GROUP_LEAVE) {
             std::string leaveInfo(payload.begin(), payload.end());
-            size_t sep = leaveInfo.find('\n');
-            if (sep == std::string::npos) return false;
-            std::string gid = leaveInfo.substr(0, sep);
-            std::string mid = leaveInfo.substr(sep + 1);
+            size_t pos = leaveInfo.find('\n');
+            if (pos  == std::string::npos) return false;
+            std::string gid = leaveInfo.substr(0, pos); //群ID
+            std::string mid = leaveInfo.substr(pos + 1);//成员ID
 
-            //更新本地会话，移除该成员
+            if (gid != groupId || mid != memberId) {
+                return false;
+            }
+
+            //当退群后不足三人时，需要关闭该群其余所有TCP连接
+            std::vector<int> removeFds;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 auto it = m_sessions.find(gid);
                 if (it != m_sessions.end()) {
                     it->second.members.erase(mid);
-                    //对端会关闭fd，epoll会触发清理。
+                    it->second.fds.erase(mid);
+                    m_connectings.erase(gid + "\n" + mid);
+                    //对端会关闭fd，epoll会触发清理
                     if (it->second.members.size() < 3) {
-                        m_sessions.erase(it);   //本地解散
+                        //收集其余成员连接，退出锁后统一关闭
+                        for (const auto &[removeMemberId, removeFd] : it->second.fds) {
+                            if (removeFd != fd) {
+                                removeFds.push_back(removeFd);
+                            }
+                        }
+
+                        //清除本群全部成员可能残留的连接中状态
+                        for (const auto &memberEntry : it->second.members) {
+                            m_connectings.erase(gid + "\n" + memberEntry.first);
+                        }
+                        //删除不足三人的本地群会话
+                        m_sessions.erase(it);
                     }
                 }
             }
-            continue;
+            QMetaObject::invokeMethod(this, [this, gid, mid]() {
+                emit groupMemberLeft(QString::fromStdString(gid), QString::fromStdString(mid));
+            }, Qt::QueuedConnection);
+
+            //群聊不足三人时，关闭剩余成员之间属于该群的本地连接
+            for (const int removeFd : removeFds) {
+                cleanupFd(removeFd);
+            }
+            return false;   
+        //解散群聊的消息
         }else if (type == MSG_TYPE_TCP_GROUP_DISMISS) {
-            std::string gid(payload.begin(), payload.end());
+            std::string dismissGroupId(payload.begin(), payload.end());
+
+            //群ID必须与当前TCP连接所属群ID一致
+            if (dismissGroupId != groupId) { return false; }
+
+            //保存除当前连接外的其他群连接。
+            std::vector<int> removeFds;
+
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
-                m_sessions.erase(gid); //整个群移除
+
+                auto sessionIt = m_sessions.find(dismissGroupId);
+                if (sessionIt == m_sessions.end()) { return false; }
+
+                //收集并清理本群剩余连接状态。
+                for (const auto &[connectedMemberId, connectedFd] : sessionIt->second.fds) {
+                    m_connectings.erase(dismissGroupId + "\n" + connectedMemberId);
+                    if (connectedFd != fd) {
+                        removeFds.push_back(connectedFd);
+                    }
+                }
+                //解散群聊后删除整个群会话
+                m_sessions.erase(sessionIt);
             }
-            //等待对端断开
-            continue;
+
+            //通知AppController删除本地数据库中的群聊
+            QMetaObject::invokeMethod(
+                this,[this, dismissGroupId]() {
+                    emit groupDismissed(QString::fromStdString(dismissGroupId));
+                },Qt::QueuedConnection);
+
+            //关闭该群剩余连接
+            for (const int removeFd : removeFds) {
+                cleanupFd(removeFd);
+            }
+            return false;
         }else {
             return false;
         }
@@ -941,63 +1024,56 @@ bool GroupChat::sendMsgToGroup(const std::string &groupId, const std::string &co
 
 bool GroupChat::leaveGroup(const std::string &groupId, const std::string &memberId)
 {
-    int selfFd = -1;
-    std::vector<int> otherFds;
-    bool dismiss = false;
+    std::string localId = m_chat->localId().trimmed().toStdString();
 
-    std::vector<int> notifyFds;           //所有其他成员的fd
-    std::vector<int> notifyTargets;       //实际用于发送通知的副本
+    if (!isTenDigitGroupId(groupId) || memberId.empty() || memberId != localId) {
+        return false;
+    }
+
+    //保存本群所有对端TCP连接，退出群聊后，无论剩余成员是否达到三人，本机都必须关闭这些连接
+    std::vector<int> groupFds;
 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        auto it = m_sessions.find(groupId);
-        if (it == m_sessions.end()) return false;
 
-        m_connectings.erase(groupId + "\n" + memberId);
+        auto sessionIt = m_sessions.find(groupId);
 
-        //记录自己的fd并移除
-        auto fdIt = it->second.fds.find(memberId);
-        if (fdIt != it->second.fds.end()) {
-            selfFd = fdIt->second;
-            it->second.fds.erase(fdIt);
+        //本机没有对应群会话，或者本机不属于该群聊时，不能执行退群
+        if (sessionIt == m_sessions.end() || !sessionIt->second.members.contains(memberId)) {
+            return false;
         }
 
-        //收集其他成员的fd，用于发送通知
-        for (const auto &[id, fd] : it->second.fds) {
-            if (id != memberId) { notifyFds.push_back(fd); }
+        //收集本群已经建立的所有对端连接，这些连接在发送完退群通知后都要关闭。
+        for (const auto &[connectedMemberId, fd] : sessionIt->second.fds) {
+            groupFds.push_back(fd);
+            m_connectings.erase(groupId + "\n" + connectedMemberId);
         }
 
-        it->second.members.erase(memberId);
+        //连接可能仍处于建立过程中，没有进入fds，因此还要按成员列表清除对应的连接中标记。
+        for (const auto &memberEntry : sessionIt->second.members) {
+            m_connectings.erase(groupId + "\n" + memberEntry.first);
+        }
 
-        notifyTargets = notifyFds;
-        if (it->second.members.size() < 3) {
-            dismiss = true;
-            otherFds = std::move(notifyFds);
-            m_sessions.erase(it);
+        //已经退出该群，删除整个本地会话。
+        m_sessions.erase(sessionIt);
+    }
+
+    //退群通知
+    std::string leavePayload = groupId + "\n" + memberId;
+    auto packet = buildTcpPacket(MSG_TYPE_TCP_GROUP_LEAVE, leavePayload);
+
+    {
+        std::lock_guard<std::mutex> sendLock(m_sendMutex);
+
+        //向当前已经连接的所有群成员发送退群通知。
+        for (const int fd : groupFds) {
+            sendPacketAll(fd, packet);
         }
     }
 
-    //向其他成员发送退出通知
-    if (!notifyTargets.empty()) {
-        std::string leavePayload = groupId + "\n" + memberId;
-        auto packet = buildTcpPacket(MSG_TYPE_TCP_GROUP_LEAVE, leavePayload);
-
-        {
-            std::lock_guard<std::mutex> sendLock(m_sendMutex);
-            for (int fd : notifyTargets) {
-                sendPacketAll(fd, packet);
-            }
-        }
-    }
-
-    //清理自己的连接
-    if (selfFd >= 0) { cleanupFd(selfFd); }
-
-    //如果是解散，清理剩余所有连接
-    if (dismiss) {
-        for (int fd : otherFds) {
-            cleanupFd(fd);
-        }
+    //通知发送完成后关闭本群的全部TCP连接,这样退出后就不会继续收到群消息。
+    for (const int fd : groupFds) {
+        cleanupFd(fd);
     }
 
     return true;

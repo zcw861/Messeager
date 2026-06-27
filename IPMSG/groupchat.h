@@ -17,6 +17,8 @@
 //         * 重构成员TCP连接函数，添加多个锁用于保护各种并发情况
 //     [v0.2.1] ZhouChengWei     2026-06-27 14:42:06
 //         * 添加了m_closingFds，用于防止多线程调用cleanupFd时同时清理连接
+//     [v0.2.3] ZhouChengWei     2026-06-27 22:02:24
+//         * 添加了2个信号用于通知控制层群聊已退出/解散
 
 #pragma once
 
@@ -51,7 +53,6 @@ struct GroupSession
 {
     std::string groupId;    //群ID
     std::string groupName;  //群名称
-    int memberCount;        //群成员数量
     std::unordered_map<std::string, GroupMember> members;   // 成员ID -> 成员信息
     std::unordered_map<std::string, int> fds;               // 成员ID -> 已建立的TCP连接fd
 };
@@ -93,6 +94,11 @@ signals:
     //当收到群消息时发射信号，由AppController连接处理
     void groupMessageReceived(const QString &groupId, const QString &fromId,
                               const QString &fromName, const QString &content);
+    //收到其他成员的退群通知后，将群ID和退群成员ID交给应用控制层更新数据库
+    void groupMemberLeft(const QString &groupId, const QString &memberId);
+
+    //收到群主发送的群聊解散通知后，通知应用控制层删除本地群聊记录
+    void groupDismissed(const QString &groupId);
 
 private:
     //确保epoll事件循环已经启动

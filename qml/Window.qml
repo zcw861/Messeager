@@ -1612,8 +1612,8 @@ ApplicationWindow {
 
                         TapHandler{
                             onTapped: {
-                                appController.leaveGroup(currentGroupId)
-                                exitGroupConfirmDialog.reject()
+                                if (appController.leaveGroup(root.currentGroupId))
+                                    exitGroupConfirmDialog.accept()
                             }
                         }
                     }
@@ -1646,9 +1646,9 @@ ApplicationWindow {
         }
 
         onAccepted: {
-            appController.leaveGroup(root.currentGroupId)
+            //清除Window.qml保存的当前群聊ID、群名称和群聊状态
             root.closeGroupChat()
-            groupInfoDrawer.close()
+            groupDetailDrawer.close()
         }
     }
 }

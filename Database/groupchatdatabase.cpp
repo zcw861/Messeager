@@ -9,6 +9,9 @@
 //         * 新增updateMemberUsername()，使用最新的用户名更新该用户在所有群聊中的成员名称，用户名为空不覆盖已保存的名称
 //     [v0.1.3] ZhouChengWei    2026-06-27 18:07:50
 //         * 实现了退群处理
+//     [v0.1.4] ZhouChengWei     2026-06-27 21:59:04
+//         * 修改退群处理函数的逻辑，现在删除之后少于3人时群聊会直接解散
+//         * 同时本地群聊表数据也会清空，界面不会再显示已退出/已解散的群
 
 #include "groupchatdatabase.h"
 
@@ -196,10 +199,8 @@ bool GroupChatDatabase::groupExists(const QString &groupId, bool &exists)
 }
 
 //校验群ID、群名称、创建者和成员列表，并保存群聊及全部成员
-bool GroupChatDatabase::createGroup(const QString &groupId,
-                                  const QString &groupName,
-                                  const QString &creatorId,
-                                  const QVariantList &members)
+bool GroupChatDatabase::createGroup(const QString &groupId, const QString &groupName,
+                                    const QString &creatorId,const QVariantList &members)
 {
     m_lastError.clear();
 
@@ -207,11 +208,6 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
 
     if (!database.isValid() || !database.isOpen()) {
         m_lastError = QStringLiteral("数据库未打开");
-        return false;
-    }
-
-    if (!database.transaction()) {
-        m_lastError = database.lastError().text();
         return false;
     }
 
@@ -256,7 +252,6 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
         const QVariantMap member = item.toMap();
 
         const QString memberId = DatabaseCheck::normalizePeerId(member.value(QStringLiteral("peerId")).toString());
-
         const QString username = member.value(QStringLiteral("username")).toString().trimmed();
 
         if (memberId.isEmpty()) {
@@ -282,7 +277,6 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
         QVariantMap normalizedMember;
         normalizedMember.insert(QStringLiteral("peerId"), memberId);
         normalizedMember.insert(QStringLiteral("username"),username);
-
         normalizedMembers.append(normalizedMember);
     }
 
@@ -357,9 +351,7 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
     }
 
     groupQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
-
     groupQuery.bindValue(QStringLiteral(":group_name"), normalizedGroupName);
-
     groupQuery.bindValue(QStringLiteral(":creator_id"), normalizedCreatorId);
 
     if (!groupQuery.exec()) {
@@ -422,11 +414,8 @@ bool GroupChatDatabase::createGroup(const QString &groupId,
         const QVariantMap member = item.toMap();
 
         memberQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
-
         memberQuery.bindValue(QStringLiteral(":peer_id"), member.value(QStringLiteral("peerId")));
-
         memberQuery.bindValue(QStringLiteral(":username"), member.value(QStringLiteral("username")));
-
         memberQuery.bindValue(QStringLiteral(":member_order"), memberOrder);
 
         if (!memberQuery.exec()) {
@@ -537,6 +526,18 @@ bool GroupChatDatabase::loadGroups(QVariantList &groups)
             ) AS member_summary
 
         FROM chat_groups AS g
+
+        WHERE EXISTS(
+            SELECT 1
+            FROM group_members AS local_member
+            WHERE local_member.group_id = g.group_id
+            AND local_member.peer_id = (
+                SELECT peer_id
+                FROM local_peer_id
+                WHERE id = 1
+            )
+        )
+
         ORDER BY g.updated_at DESC, g.created_at DESC, g.group_id ASC
     )";
 
@@ -554,21 +555,13 @@ bool GroupChatDatabase::loadGroups(QVariantList &groups)
 
     while (query.next()) {
         QVariantMap group;
-
         group.insert(QStringLiteral("groupId"), query.value(0).toString());
-
         group.insert(QStringLiteral("groupName"), query.value(1).toString());
-
         group.insert(QStringLiteral("creatorId"), query.value(2).toString());
-
         group.insert(QStringLiteral("createdAt"), query.value(3).toString());
-
         group.insert(QStringLiteral("updatedAt"), query.value(4).toString());
-
         group.insert(QStringLiteral("memberCount"), query.value(5).toInt());
-
         group.insert(QStringLiteral("memberSummary"), query.value(6).toString());
-
         groups.append(group);
     }
 
@@ -591,7 +584,7 @@ bool GroupChatDatabase::loadGroupMembers(const QString &groupId, QVariantList &m
     }
 
     //群ID去除首尾空白
-    const QString normalizedGroupId = groupId.trimmed();
+    QString normalizedGroupId = groupId.trimmed();
 
     if (normalizedGroupId.isEmpty()) {
         m_lastError = QStringLiteral("群聊ID为空");
@@ -668,7 +661,7 @@ bool GroupChatDatabase::loadGroupMembers(const QString &groupId, QVariantList &m
 }
 
 //读取指定群聊最近的历史消息
-//先按消息ID倒序取得最新的一批，再升序返回，
+//先按消息ID倒序取得最新的一批，再升序返回
 bool GroupChatDatabase::loadGroupMessages(const QString &groupId, QVariantList &messages, int limit)
 {
     m_lastError.clear();
@@ -690,7 +683,7 @@ bool GroupChatDatabase::loadGroupMessages(const QString &groupId, QVariantList &
     }
 
 
-    //限制读取数量。防止传入负数、0或异常大的值，造成一次读取过多历史消息。
+    //限制读取数量。防止传入负数、0或异常大的值，造成一次读取过多历史消息
     if (limit <= 0) { limit = 5000;}
 
     if (limit > 9999) { limit = 9999;}
@@ -745,19 +738,12 @@ bool GroupChatDatabase::loadGroupMessages(const QString &groupId, QVariantList &
         QVariantMap message;
 
         message.insert(QStringLiteral("groupMessageId"), query.value(0).toLongLong());
-
         message.insert(QStringLiteral("groupId"), query.value(1).toString());
-
         message.insert(QStringLiteral("senderId"), query.value(2).toString());
-
         message.insert(QStringLiteral("senderName"), query.value(3).toString());
-
         message.insert(QStringLiteral("fromMe"), query.value(4).toInt() != 0);
-
         message.insert(QStringLiteral("content"), query.value(5).toString());
-
         message.insert(QStringLiteral("createdAt"),query.value(6).toString());
-
         messages.append(message);
     }
 
@@ -1017,24 +1003,100 @@ bool GroupChatDatabase::leaveGroup(const QString &groupId,const QString &peerId)
         return false;
     }
 
-    QSqlQuery query(database);
+    QString normalizedGroupId = groupId.trimmed();
+    QString normalizedPeerId = DatabaseCheck::normalizePeerId(peerId);
 
-    const QString sql = R"(
+    if (!DatabaseCheck::isValidGroupId(normalizedGroupId)) {
+        m_lastError = QStringLiteral("群聊ID必须是十位数字");
+        return false;
+    }
+
+    if (normalizedPeerId.isEmpty()) {
+        m_lastError = QStringLiteral("退群成员ID无效");
+        return false;
+    }
+
+    //成员删除、人数统计和自动解散必须属于同一个事务,避免成员已经删除但群聊没有正确解散的状态
+    if (!database.transaction()) {
+        m_lastError = database.lastError().text();
+        return false;
+    }
+
+    QSqlQuery deleteMemberQuery(database);
+
+    const QString deleteMemberSql = R"(
         DELETE FROM group_members
         WHERE group_id = :group_id
         AND peer_id = :peer_id
     )";
 
-    if (!query.prepare(sql)) {
-        m_lastError = query.lastError().text();
+    if (!deleteMemberQuery.prepare(deleteMemberSql)) {
+        m_lastError = QStringLiteral("准备删除群成员SQL失败：") + deleteMemberQuery.lastError().text();
+        database.rollback();
         return false;
     }
 
-    query.bindValue(":group_id", groupId);
-    query.bindValue(":peer_id", peerId);
+    deleteMemberQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+    deleteMemberQuery.bindValue(QStringLiteral(":peer_id"), normalizedPeerId);
 
-    if (!query.exec()) {
-        m_lastError = query.lastError().text();
+    if (!deleteMemberQuery.exec()) {
+        m_lastError = QStringLiteral("删除群成员失败：") + deleteMemberQuery.lastError().text();
+        database.rollback();
+        return false;
+    }
+
+    //重新统计删除成员后的实际群成员数量
+    QSqlQuery countQuery(database);
+
+    const QString countSql = R"(
+        SELECT COUNT(*)
+        FROM group_members
+        WHERE group_id = :group_id
+    )";
+
+    if (!countQuery.prepare(countSql)) {
+        m_lastError = QStringLiteral("准备统计群成员SQL失败：") + countQuery.lastError().text();
+        database.rollback();
+        return false;
+    }
+
+    countQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+
+    if (!countQuery.exec() || !countQuery.next()) {
+        m_lastError = QStringLiteral("统计群成员失败：") + countQuery.lastError().text();
+        database.rollback();
+        return false;
+    }
+
+    int removeMemberCount = countQuery.value(0).toInt();
+
+    //群聊成员不足三人时删除chat_groups
+    if (removeMemberCount < 3) {
+        QSqlQuery deleteGroupQuery(database);
+
+        const QString deleteGroupSql = R"(
+            DELETE FROM chat_groups
+            WHERE group_id = :group_id
+        )";
+
+        if (!deleteGroupQuery.prepare(deleteGroupSql)) {
+            m_lastError = QStringLiteral("准备自动解散群聊SQL失败：") + deleteGroupQuery.lastError().text();
+            database.rollback();
+            return false;
+        }
+
+        deleteGroupQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+
+        if (!deleteGroupQuery.exec()) {
+            m_lastError = QStringLiteral("自动解散群聊失败：") + deleteGroupQuery.lastError().text();
+            database.rollback();
+            return false;
+        }
+    }
+
+    if (!database.commit()) {
+        m_lastError = QStringLiteral("提交退群事务失败：") + database.lastError().text();
+        database.rollback();
         return false;
     }
 
