@@ -50,6 +50,7 @@
 //     [v0.2.8] ZhouChengWei    2026-06-27
 //         * 添加了群聊详情界面打开，实现退出群聊
 //         * 添加了退出群聊时提示是否要退出的对话框
+//         * 对退出群聊确定按钮做了默认焦点处理，现在按enter就能退出
 
 
 import QtQuick
@@ -1534,8 +1535,18 @@ ApplicationWindow {
         height: 170
         anchors.centerIn: parent
 
+        //设置其他背景变暗
         Overlay.modal: Rectangle {
             color: "#80000000"
+        }
+
+        function confirmLeaveGroup() {
+            if (appController.leaveGroup(root.currentGroupId))
+                exitGroupConfirmDialog.accept()
+        }
+
+        onOpened: {
+            contentItem.forceActiveFocus()
         }
 
         Rectangle {
@@ -1573,6 +1584,12 @@ ApplicationWindow {
 
         contentItem: Item {
             anchors.fill: parent
+            focus: true
+
+            Keys.onEnterPressed: {
+                exitGroupConfirmDialog.confirmLeaveGroup()
+            }
+
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 20
@@ -1611,10 +1628,7 @@ ApplicationWindow {
                         }
 
                         TapHandler{
-                            onTapped: {
-                                if (appController.leaveGroup(root.currentGroupId))
-                                    exitGroupConfirmDialog.accept()
-                            }
+                            onTapped: exitGroupConfirmDialog.confirmLeaveGroup()
                         }
                     }
                     //取消按钮
