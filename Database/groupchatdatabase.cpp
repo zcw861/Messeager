@@ -5,7 +5,8 @@
 //
 //     [v0.1.1] ZhouChengWei     2026-06-26 16:42:35
 //         * 修改了群成员表的名字获取从用户表里获取，实现了修改名字时同步显示到群成员列表里
-
+//     [v0.1.2] HeZhiyuan    2026-06-27 15:42:09
+//         * 新增updateMemberUsername()，使用最新的用户名更新该用户在所有群聊中的成员名称，用户名为空不覆盖已保存的名称
 #include "groupchatdatabase.h"
 
 #include "databasecore.h"
@@ -599,7 +600,7 @@ bool GroupChatDatabase::loadGroupMembers(const QString &groupId, QVariantList &m
     const QString sql = R"(
         SELECT
             gm.peer_id,
-            p.username,
+            gm.username,
             gm.member_order,
             gm.joined_at,
             COALESCE(p.ip, '') AS current_ip,
@@ -616,11 +617,8 @@ bool GroupChatDatabase::loadGroupMembers(const QString &groupId, QVariantList &m
             END AS is_self
 
         FROM group_members AS gm
-
         LEFT JOIN peers AS p ON p.peer_id = gm.peer_id
-
         WHERE gm.group_id = :group_id
-
         ORDER BY gm.member_order ASC
     )";
 
@@ -758,6 +756,70 @@ bool GroupChatDatabase::loadGroupMessages(const QString &groupId, QVariantList &
         message.insert(QStringLiteral("createdAt"),query.value(6).toString());
 
         messages.append(message);
+    }
+
+    return true;
+}
+
+//使用最新的用户名更新该用户在所有群聊中的成员名称，用户名为空不覆盖已保存的名称
+bool GroupChatDatabase::updateMemberUsername(const QString &peerId, const QString &username)
+{
+    //清除上一次数据库操作留下的错误信息
+    m_lastError.clear();
+
+    //取得DatabaseCore管理的数据库连接
+    QSqlDatabase database = m_databaseCore.database();
+
+    //数据库没有成功打开时不能执行更新
+    if (!database.isValid() || !database.isOpen()) {
+        m_lastError = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    //统一校验并规范化用户ID
+    const QString normalizedPeerId = DatabaseCheck::normalizePeerId(peerId);
+
+    //去除用户名首尾空白，避免把全空格名称保存到群成员表
+    const QString normalizedUsername = username.trimmed();
+
+    //无效peerId
+    if (normalizedPeerId.isEmpty()) {
+        m_lastError = QStringLiteral("peerId不是有效UUID");
+        return false;
+    }
+
+    //空用户名
+    if (normalizedUsername.isEmpty()) {
+        return true;
+    }
+
+    //创建更新群成员名称的查询对象
+    QSqlQuery query(database);
+
+    //更新该用户在所有群聊中的名称
+    const QString sql = R"(
+        UPDATE group_members
+        SET username = :username
+        WHERE peer_id = :peer_id
+        AND username <> :username
+    )";
+
+    //预处理
+    if (!query.prepare(sql)) {
+        m_lastError = QStringLiteral("准备更新群成员名称SQL失败：") + query.lastError().text();
+        return false;
+    }
+
+    //绑定新用户名
+    query.bindValue(QStringLiteral(":username"), normalizedUsername);
+
+    //绑定用户ID
+    query.bindValue(QStringLiteral(":peer_id"), normalizedPeerId);
+
+    //更新
+    if (!query.exec()) {
+        m_lastError = QStringLiteral("更新群成员名称失败：") + query.lastError().text();
+        return false;
     }
 
     return true;

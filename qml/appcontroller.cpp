@@ -33,7 +33,8 @@
 //           将原有DatabaseManager调用替换为对应的数据访问类调用
 //     [v0.2.1] ZhouChengWei     2026-06-26 16:40:55
 //         * 优化了修改名字时需要重新登录对方才会显示的逻辑，现在修改之后对方就会收到新名字
-
+//     [v0.2.2] HeZhiyuan    2026-06-27 15:40:19
+//         * 优化更改用户名后群聊用户名更新问题，修复在用户列表删除用户，群聊用户列表显示“？”问题
 #include "appcontroller.h"
 
 #include <QVariantMap>
@@ -1150,12 +1151,33 @@ void AppController::synchronizeOnlineUsers()
         return;
     }
 
+    //将网络层确认过的用户名同步到对应用户所在的全部群聊
+    for (const QVariant &item : normalizedPeers) {
+        //读取当前在线用户记录
+        const QVariantMap peer = item.toMap();
+
+        //读取用户ID
+        const QString peerId = peer.value(QStringLiteral("peerId")).toString().trimmed();
+
+        //读取用户名
+        const QString username = peer.value(QStringLiteral("username")).toString().trimmed();
+
+        if (username.isEmpty()) {
+            continue;
+        }
+
+        //同步该用户在全部群聊中的名称
+        if (!m_groupChatDatabase.updateMemberUsername(peerId, username)) {
+            reportError(QStringLiteral("同步群成员用户名失败：") + m_groupChatDatabase.lastError());
+            return;
+        }
+    }
+
     //同步成功后重新读取排序后的数据库用户列表
     refreshPeers();
-
+    refreshGroups();
     //重新恢复群会话，使用peerId匹配最新IP
     restoreGroupSessions();
-
     //在线状态变化后需要同步刷新右侧成员栏
     refreshGroupMembers();
 
@@ -1366,7 +1388,6 @@ bool AppController::updateMyName(const QString &newName)
     }
 
     const QString name = newName.trimmed();
-    m_chat.setLocalName(newName);
 
     if (name.isEmpty()) {
         reportError(QStringLiteral("用户名不能为空"));
@@ -1383,10 +1404,13 @@ bool AppController::updateMyName(const QString &newName)
     }
 
     //更新数据库本机用户信息
-    if (!m_peerDatabase.upsertPeer(localId, name, localIp, true)) {
+    if (!m_peerDatabase.upsertPeer(localId, name, localIp, true) && !m_groupChatDatabase.updateMemberUsername(localId, name)) {
         reportError(QStringLiteral("更新本机用户名失败：") + m_peerDatabase.lastError());
         return false;
     }
+
+    //数据库更新成功后再修改网络层名称
+    m_chat.setLocalName(name);
 
     //更新自动登录用户名
     QSettings s;
@@ -1394,6 +1418,11 @@ bool AppController::updateMyName(const QString &newName)
 
     //更新前端用户列表
     refreshPeers();
-
+    //刷新左侧群聊卡片中的成员摘要
+    refreshGroups();
+    //刷新当前打开群聊的成员列表
+    refreshGroupMembers();
+    //刷新创建群聊窗口中的本机候选成员名称
+    emit groupCandidatesChanged();
     return true;
 }
