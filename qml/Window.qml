@@ -51,7 +51,8 @@
 //         * 添加了群聊详情界面打开，实现退出群聊
 //         * 添加了退出群聊时提示是否要退出的对话框
 //         * 对退出群聊确定按钮做了默认焦点处理，现在按enter就能退出
-
+//     [v0.2.9] HeZhiyuan    2026-06-27 23:48:52
+//         * 优化退出群聊时焦点选择以及按键处理
 
 import QtQuick
 import QtQuick.Controls
@@ -1530,6 +1531,8 @@ ApplicationWindow {
     Dialog {
         id: exitGroupConfirmDialog
         modal: true
+        focus: true
+
         closePolicy: Popup.CloseOnPressOutside
         width: 350
         height: 170
@@ -1546,7 +1549,10 @@ ApplicationWindow {
         }
 
         onOpened: {
-            contentItem.forceActiveFocus()
+            //等待Dialog自身完成打开和焦点切换后，再把活动焦点交给确定按钮。
+            Qt.callLater(function() {
+                confirmLeaveButton.forceActiveFocus()
+            })
         }
 
         Rectangle {
@@ -1584,11 +1590,6 @@ ApplicationWindow {
 
         contentItem: Item {
             anchors.fill: parent
-            focus: true
-
-            Keys.onEnterPressed: {
-                exitGroupConfirmDialog.confirmLeaveGroup()
-            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -1614,8 +1615,11 @@ ApplicationWindow {
                     Layout.alignment: Qt.AlignRight
                     //确定按钮
                     Rectangle{
+                        id: confirmLeaveButton
+
                         width: 80; height: 35; radius: 10;
                         color: okHovered.hovered ? "#008af3" : "#00a6ff"
+                        focus: true
                         Text {
                             anchors.centerIn: parent
                             text: "确定"
@@ -1629,6 +1633,15 @@ ApplicationWindow {
 
                         TapHandler{
                             onTapped: exitGroupConfirmDialog.confirmLeaveGroup()
+                        }
+                        //键盘事件必须写在实际获得activeFocus的确定按钮上。
+                        Keys.onPressed: function(event) {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                //阻止回车事件继续传递给其他对象
+                                event.accepted = true
+
+                                exitGroupConfirmDialog.confirmLeaveGroup()
+                            }
                         }
                     }
                     //取消按钮
