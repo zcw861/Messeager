@@ -11,6 +11,8 @@
 //     [v0.1.4] HeZhiyuan    2026-06-23 17:13:52
 //         * 新增：createGroup()
 //           接收群名称和群成员列表，并返回网络层生成的真实groupId
+//     [v0.1.5] ZhouChengWei    2026-06-27 18:04:57
+//         * 添加了退出/解散群聊函数
 
 #pragma once
 
@@ -120,6 +122,12 @@ public:
 
     //退出当前群聊会话
     Q_INVOKABLE void clearGroupConversation();
+
+    //解散群聊（群主）
+    Q_INVOKABLE bool dismissGroup(const QString &groupId);
+
+    //退出群聊（成员）
+    Q_INVOKABLE bool leaveGroup(const QString &groupId);
 
     //创建一个新的群聊
     //成功时返回网络层生成的真实groupId

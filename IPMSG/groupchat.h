@@ -15,6 +15,8 @@
 //         * 添加了一系列键值对，用于确保获取每个人的消息
 //         * 添加了确认/回复函数，用于建立群聊连接
 //         * 重构成员TCP连接函数，添加多个锁用于保护各种并发情况
+//     [v0.2.1] ZhouChengWei     2026-06-27 14:42:06
+//         * 添加了m_closingFds，用于防止多线程调用cleanupFd时同时清理连接
 
 #pragma once
 
@@ -25,6 +27,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -48,6 +51,7 @@ struct GroupSession
 {
     std::string groupId;    //群ID
     std::string groupName;  //群名称
+    int memberCount;        //群成员数量
     std::unordered_map<std::string, GroupMember> members;   // 成员ID -> 成员信息
     std::unordered_map<std::string, int> fds;               // 成员ID -> 已建立的TCP连接fd
 };
@@ -72,6 +76,12 @@ public:
     //恢复群聊（应用重启后，从数据库恢复群信息）：更新成员信息并补建TCP连接
     bool restoreGroup(const QString &groupId, const QString &groupName,
                       const std::vector<UserInfo> &groupMembers);
+
+    //退出群聊（如果退出群聊之后群聊成员少于3人则群聊解散）
+    bool leaveGroup(const std::string &groupId, const std::string &memberId);
+
+    //解散群聊（只有群主才能解散）
+    bool dismissGroup(const std::string &groupId);
 
     //向指定群发送消息，消息将通过已有的TCP连接逐个发送给群内其他成员
     bool sendMsgToGroup(const std::string &groupId, const std::string &content);
@@ -163,6 +173,9 @@ private:
 
     //防止对同一成员重复发起连接尝试的键集合
     std::unordered_set<std::string> m_connectings;
+
+    //正在关闭的连接，防止多线程调用cleanupFd时同时清理连接
+    std::set<int> m_closingFds;
 
     //线程集合
     std::vector<std::thread> m_workerThreads;

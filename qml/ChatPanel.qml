@@ -32,6 +32,8 @@
 * [v0.2.6] HeZhiyuan   2026-06-25
 * * 使用私聊消息模型和群聊消息模型显示当前会话历史
 * * 群聊中显示其他成员的发送者名称
+* [v0.2.7] ZhouChengWei  2026-06-27
+* * 添加了打开群聊详情界面的按钮，主要用于退出/解散群聊
 */
 
 import QtQuick
@@ -85,6 +87,36 @@ Rectangle{
                 anchors.left: parent.left
                 anchors.leftMargin: 15
                 anchors.verticalCenter: parent.verticalCenter
+            }
+
+            //打开群聊详情界面（包括退出/解散群聊）
+            Rectangle {
+                id: groupDetailButton
+                width: 30; height: 30; radius: 6
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                visible: root.isGroupChat
+                color: groupDetailButtonHovered.hovered ? "#efefef" : "#FFFFFF"
+
+                Text {
+                    text: "···"
+                    font.pixelSize: 18
+                    color: "black"
+                    anchors.centerIn: parent
+                }
+
+                HoverHandler{
+                    id:groupDetailButtonHovered
+                    cursorShape: Qt.PointingHandCursor
+                }
+
+                TapHandler{
+                    id: groupDetailButtonTapped
+                    onTapped: {
+                        parent.Window.window.openGroupDrawer()
+                    }
+                }
             }
         }
 

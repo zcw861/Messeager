@@ -35,6 +35,9 @@
 //         * 优化了修改名字时需要重新登录对方才会显示的逻辑，现在修改之后对方就会收到新名字
 //     [v0.2.2] HeZhiyuan    2026-06-27 15:40:19
 //         * 优化更改用户名后群聊用户名更新问题，修复在用户列表删除用户，群聊用户列表显示“？”问题
+//     [v0.2.3  ZhouChengWei     2026-06-27 18:05:50
+//         * 实现了退出和解散群聊函数
+
 #include "appcontroller.h"
 
 #include <QVariantMap>
@@ -1424,5 +1427,41 @@ bool AppController::updateMyName(const QString &newName)
     refreshGroupMembers();
     //刷新创建群聊窗口中的本机候选成员名称
     emit groupCandidatesChanged();
+    return true;
+}
+
+bool AppController::leaveGroup(const QString &groupId)
+{
+    QString localPeerId = m_chat.localId();
+
+    if (!m_groupChatDatabase.leaveGroup(groupId, localPeerId)){
+        reportError(QStringLiteral("退出群聊失败：")+ m_groupChatDatabase.lastError());
+        return false;
+    }
+
+    if (m_currentGroupId == groupId) {
+        clearGroupConversation();
+    }
+
+    refreshGroups();
+
+    return true;
+}
+
+bool AppController::dismissGroup(const QString &groupId)
+{
+    const QString normalizedGroupId = groupId.trimmed();
+
+    if (!m_groupChatDatabase.deleteGroup(normalizedGroupId)) {
+        reportError(QStringLiteral("解散群聊失败：") + m_groupChatDatabase.lastError());
+        return false;
+    }
+
+    if (m_currentGroupId == normalizedGroupId) {
+        clearGroupConversation();
+    }
+
+    refreshGroups();
+
     return true;
 }

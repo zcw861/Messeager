@@ -5,6 +5,9 @@
 //
 //     [v0.1.1] HeZhiyuan    2026-06-27 15:43:11
 //         * 新增updateMemberUsername()
+//     [v0.1.2] ZhouChengWei    2026-06-27 18:06:57
+//         * 添加了退群处理函数
+
 #pragma once
 
 #include <QString>
@@ -31,6 +34,9 @@ public:
 
     //删除指定群聊；群成员和群消息由外键级联删除
     bool deleteGroup(const QString &groupId);
+
+    //退群
+    bool leaveGroup(const QString &groupId, const QString &peerId);
 
     //读取全部群聊的名称、创建者、时间、成员数量和成员摘要
     bool loadGroups(QVariantList &groups);

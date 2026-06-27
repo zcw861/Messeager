@@ -11,6 +11,9 @@
 //         * 统一群聊协议常量
 //     [v0.1.3] ZhouChengWei    2026-06-25 17:34:15
 //         * 完善群聊协议(握手，数据)
+//     [v0.1.4] ZhouChengWei    2026-06-27 14:41:07
+//         * 添加了解散/退群群聊的消息类型
+
 #pragma once
 
 #include <netinet/in.h>
@@ -29,19 +32,21 @@
 
 
 //UDP消息类型(0x10 ~ 0x2F)
-#define MSG_TYPE_UDP_BROADCAST   0x10   //广播发现用户
-#define MSG_TYPE_UDP_UNICAST     0x11   //单播邀请（群聊）
-#define MSG_TYPE_UDP_ACK         0x12   //邀请应答
+#define MSG_TYPE_UDP_BROADCAST      0x10   //广播发现用户
+#define MSG_TYPE_UDP_UNICAST        0x11   //单播邀请（群聊）
+#define MSG_TYPE_UDP_ACK            0x12   //邀请应答
 
 //TCP消息类型(0x30 ~ 0x4F)
-#define MSG_TYPE_TCP_PRIVATE     0x30   //普通私聊消息
-#define MSG_TYPE_TCP_GROUP       0x31   //群聊消息
-#define MSG_TYPE_TCP_FILE_REQ    0x32   //文件请求
-#define MSG_TYPE_TCP_FILE_ACK    0x33   //文件接受/拒绝
-#define MSG_TYPE_TCP_FILE_DATA   0x34   //文件数据块
-#define MSG_TYPE_TCP_GROUP_HELLO 0x35   //群聊连接握手
-#define MSG_TYPE_TCP_GROUP_DATA  0x36   //群聊消息数据
-#define MSG_TYPE_TCP_GROUP_ACK   0x37   //群聊TCP握手确认
+#define MSG_TYPE_TCP_PRIVATE        0x30   //普通私聊消息
+#define MSG_TYPE_TCP_GROUP          0x31   //群聊消息
+#define MSG_TYPE_TCP_FILE_REQ       0x32   //文件请求
+#define MSG_TYPE_TCP_FILE_ACK       0x33   //文件接受/拒绝
+#define MSG_TYPE_TCP_FILE_DATA      0x34   //文件数据块
+#define MSG_TYPE_TCP_GROUP_HELLO    0x35   //群聊连接握手
+#define MSG_TYPE_TCP_GROUP_DATA     0x36   //群聊消息数据
+#define MSG_TYPE_TCP_GROUP_ACK      0x37   //群聊TCP握手确认
+#define MSG_TYPE_TCP_GROUP_LEAVE    0x38   //成员退出群聊
+#define MSG_TYPE_TCP_GROUP_DISMISS  0x39   //群主解散群聊
 
 //单个TCP载荷允许的最大字节数（1MB）
 #define MAX_TCP_PAYLOAD_SIZE (1024 * 1024)

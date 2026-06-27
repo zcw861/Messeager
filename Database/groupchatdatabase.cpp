@@ -7,6 +7,9 @@
 //         * 修改了群成员表的名字获取从用户表里获取，实现了修改名字时同步显示到群成员列表里
 //     [v0.1.2] HeZhiyuan    2026-06-27 15:42:09
 //         * 新增updateMemberUsername()，使用最新的用户名更新该用户在所有群聊中的成员名称，用户名为空不覆盖已保存的名称
+//     [v0.1.3] ZhouChengWei    2026-06-27 18:07:50
+//         * 实现了退群处理
+
 #include "groupchatdatabase.h"
 
 #include "databasecore.h"
@@ -997,6 +1000,41 @@ bool GroupChatDatabase::saveGroupMessage(const QString &groupId,
     if (!database.commit()) {
         m_lastError = QStringLiteral("提交群消息保存事务失败：") + database.lastError().text();
         database.rollback();
+        return false;
+    }
+
+    return true;
+}
+
+bool GroupChatDatabase::leaveGroup(const QString &groupId,const QString &peerId)
+{
+    m_lastError.clear();
+
+    QSqlDatabase database = m_databaseCore.database();
+
+    if (!database.isOpen()) {
+        m_lastError = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    QSqlQuery query(database);
+
+    const QString sql = R"(
+        DELETE FROM group_members
+        WHERE group_id = :group_id
+        AND peer_id = :peer_id
+    )";
+
+    if (!query.prepare(sql)) {
+        m_lastError = query.lastError().text();
+        return false;
+    }
+
+    query.bindValue(":group_id", groupId);
+    query.bindValue(":peer_id", peerId);
+
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
         return false;
     }
 

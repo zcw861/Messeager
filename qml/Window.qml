@@ -47,6 +47,10 @@
 //     [v0.2.7] ZhouChengWei    2026-06-26
 //         * 修改了群聊界面群成员收起/展开按钮的样貌
 //         * 不是群聊界面取消了文件按钮
+//     [v0.2.8] ZhouChengWei    2026-06-27
+//         * 添加了群聊详情界面打开，实现退出群聊
+//         * 添加了退出群聊时提示是否要退出的对话框
+
 
 import QtQuick
 import QtQuick.Controls
@@ -709,7 +713,8 @@ ApplicationWindow {
                                     currentPeerId: root.currentConversationId
                                     currentPeerName: root.currentConversationName
                                     isGroupChat: root.currentIsGroup
-                                    messageModel: root.currentIsGroup ? appController.groupMessages : appController.messages
+                                    messageModel: root.currentIsGroup ? appController.groupMessages :
+                                                                        appController.messages
                                 }
 
                                 //群成员列表
@@ -740,25 +745,17 @@ ApplicationWindow {
                                             Layout.fillWidth: true
                                             Layout.preferredHeight: 40
 
-                                            color: "#FFFFFF"
+                                            color: "#FAFAFA"
 
                                             Text {
-                                                text: qsTr("群成员： ") + appController.groupMembers.length
-                                                font.pixelSize: 15
-                                                font.bold: true
+                                                text: qsTr("群聊成员: ") + appController.groupMembers.length
+                                                font.pixelSize: 13
                                                 color: "black"
 
                                                 anchors.left: parent.left
                                                 anchors.leftMargin: 10
                                                 anchors.verticalCenter: parent.verticalCenter
                                             }
-                                        }
-
-                                        //分割线
-                                        Rectangle {
-                                            Layout.fillWidth: true
-                                            Layout.preferredHeight: 1
-                                            color: "#e0e0e0"
                                         }
 
                                         //成员列表
@@ -1416,6 +1413,242 @@ ApplicationWindow {
         //群聊用户右侧用户列表左拉伸
         Rectangle {
 
+        }
+    }
+
+
+    //群聊详情界面的展开
+    Drawer {
+        id: groupDetailDrawer
+
+        edge: Qt.RightEdge
+        y: 90
+        width: 280
+        height: parent.height - y
+        modal: false
+
+        //点击外部区域关闭
+        closePolicy: Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: "#FFFFFF"
+            //左侧加一条分割线
+            Rectangle {
+                width: 1
+                height: parent.height
+                color: "#E5E5E5"
+                anchors.left: parent.left
+            }
+        }
+
+        //抽屉内容
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 20
+            spacing: 12
+
+            Text {
+                text: "群聊信息"
+                font.pixelSize: 18
+                font.bold: true
+                color: "#333333"
+            }
+
+            Text {
+                text: "群名称: " + root.currentGroupName
+                font.pixelSize: 14
+                color: "#555555"
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+            }
+
+            Text {
+                text: "群ID: " + root.currentGroupId
+                font.pixelSize: 14
+                color: "#555555"
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+            }
+
+            Text {
+                text: "成员数: " + appController.groupMembers.length
+                font.pixelSize: 14
+                color: "#555555"
+            }
+
+            //分割线
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: "#F0F0F0"
+            }
+
+            //占位
+            Item {
+                Layout.fillHeight: true
+            }
+
+            //退出群聊按钮
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 36
+                radius: 5
+                color: leaveGroupButtonHovered.hovered ? "#e17a7a" : "#e13b3b"
+
+                Text {
+                    text: "退出群聊"
+                    color: "#FFFFFF"
+                    font.pixelSize: 15
+                    anchors.centerIn: parent
+                }
+
+                TapHandler{
+                    id: groupDetailTapped
+                    onTapped: {
+                        exitGroupConfirmDialog.open()
+                    }
+                }
+
+                HoverHandler{
+                    id: leaveGroupButtonHovered
+                }
+            }
+        }
+    }
+
+    //打开群聊详情界面的函数
+    function openGroupDrawer() {
+        if (groupDetailDrawer.opened) {
+            groupDetailDrawer.close()
+        } else {
+            groupDetailDrawer.open()
+        }
+    }
+
+    //提示用户是否要退出该群聊
+    Dialog {
+        id: exitGroupConfirmDialog
+        modal: true
+        closePolicy: Popup.CloseOnPressOutside
+        width: 350
+        height: 170
+        anchors.centerIn: parent
+
+        Overlay.modal: Rectangle {
+            color: "#80000000"
+        }
+
+        Rectangle {
+            width: 24
+            height: 24
+            anchors.right: parent.right
+            anchors.rightMargin: 2
+            anchors.top: parent.top
+            anchors.topMargin: 2
+            color: "transparent"
+
+            Text {
+                text: "✕"
+                font.pixelSize: 20
+                color: "black"
+                anchors.centerIn: parent
+            }
+
+            TapHandler {
+                onTapped: exitGroupConfirmDialog.reject()
+            }
+
+            HoverHandler{
+                id:quitGroupConfirmHovered
+                cursorShape: Qt.PointingHandCursor
+            }
+        }
+
+        background: Rectangle {
+            color: "white"
+            radius: 8
+            border.color: "#E0E0E0"
+            border.width: 1
+        }
+
+        contentItem: Item {
+            anchors.fill: parent
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 10
+
+                Label{
+                    text: "退出群聊"
+                    font.pixelSize: 16
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                Label {
+                    text: "确定要退出该群聊吗？"
+                    font.pixelSize: 16
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                RowLayout {
+                    Layout.alignment: Qt.AlignRight
+                    //确定按钮
+                    Rectangle{
+                        width: 80; height: 35; radius: 10;
+                        color: okHovered.hovered ? "#008af3" : "#00a6ff"
+                        Text {
+                            anchors.centerIn: parent
+                            text: "确定"
+                            color: "white"
+                            font.pixelSize: 16
+                        }
+
+                        HoverHandler{
+                            id: okHovered
+                        }
+
+                        TapHandler{
+                            onTapped: {
+                                appController.leaveGroup(currentGroupId)
+                                exitGroupConfirmDialog.reject()
+                            }
+                        }
+                    }
+                    //取消按钮
+                    Rectangle{
+                        width: 80; height: 35; radius: 10;
+                        color: cancelHovered.hovered ? "#efefef" : "#f8f8f8"
+                        border{
+                            color: "#c2c2c2"
+                            width: 1
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "取消"
+                            color: "black"
+                            font.pixelSize: 16
+                        }
+
+                        HoverHandler{
+                            id: cancelHovered
+                        }
+
+                        TapHandler{
+                            onTapped: exitGroupConfirmDialog.reject()
+                        }
+                    }
+                }
+            }
+        }
+
+        onAccepted: {
+            appController.leaveGroup(root.currentGroupId)
+            root.closeGroupChat()
+            groupInfoDrawer.close()
         }
     }
 }

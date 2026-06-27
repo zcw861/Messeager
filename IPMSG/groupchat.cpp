@@ -17,6 +17,10 @@
 //         * 添加了一系列错误检查，如等待对方ACK,连接重试
 //         * 优化了群聊成员之间的TCP连接，实现两两连接
 //         * 优化TCP消息的半包粘包问题，每个人一个接收缓冲区，一次性读取消息
+//     [v0.2.1] ZhouChengWei    2026-06-27 14:39:20
+//         * 添加了退出群聊/解散群聊的函数
+//         * 修改了清理函数，现在会同步清理m_connectings，防止退群后下次不能进群聊了
+//         * 添加用于保存正在清理的连接，防止多线程调用清理函数时清理一个连接2次
 
 #include "groupchat.h"
 #include "chat.h"
@@ -765,25 +769,17 @@ bool GroupChat::handleBufferedFrames(int fd)
 
             type = buffer[0];
 
-            //目前只处理群数据消息类型
-            if (type != MSG_TYPE_TCP_GROUP_DATA) {
-                return false;
-            }
 
             uint32_t netLength = 0;
             memcpy(&netLength, buffer.data() + 1, sizeof(netLength));
             uint32_t payloadLength = ntohl(netLength);
 
-            if (payloadLength > MAX_TCP_PAYLOAD_SIZE) {
-                return false;
-            }
+            if (payloadLength > MAX_TCP_PAYLOAD_SIZE) { return false; }
 
             size_t frameLength = 5U + payloadLength;
 
             //如果缓冲区中的数据不够一个完整帧，则继续等待
-            if (buffer.size() < frameLength) {
-                return true;
-            }
+            if (buffer.size() < frameLength) { return true; }
 
             //提取数据部份
             payload.assign(buffer.begin() + 5, buffer.begin() + frameLength);
@@ -795,27 +791,64 @@ bool GroupChat::handleBufferedFrames(int fd)
             memberId = infoIt->second.second;
         }
 
-        MsgData message = deserializeMsgData(reinterpret_cast<const char *>(payload.data()), payload.size());
+        //群消息
+        if (type == MSG_TYPE_TCP_GROUP_DATA) {
+            MsgData message = deserializeMsgData(reinterpret_cast<const char *>(payload.data()),
+                                                 payload.size());
+            if (message.targetId != groupId || message.senderId != memberId || message.message.empty()) {
+                return false;
+            }
 
-        if (message.targetId != groupId || message.senderId != memberId || message.message.empty()) {
+            //将消息发送到主线程
+            QMetaObject::invokeMethod(this,[this, message]() {
+                    emit groupMessageReceived(QString::fromStdString(message.targetId),
+                                              QString::fromStdString(message.senderId),
+                                              QString::fromStdString(message.senderName),
+                                              QString::fromStdString(message.message));
+                },Qt::QueuedConnection);
+        //退群消息
+        }else if (type == MSG_TYPE_TCP_GROUP_LEAVE) {
+            std::string leaveInfo(payload.begin(), payload.end());
+            size_t sep = leaveInfo.find('\n');
+            if (sep == std::string::npos) return false;
+            std::string gid = leaveInfo.substr(0, sep);
+            std::string mid = leaveInfo.substr(sep + 1);
+
+            //更新本地会话，移除该成员
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                auto it = m_sessions.find(gid);
+                if (it != m_sessions.end()) {
+                    it->second.members.erase(mid);
+                    //对端会关闭fd，epoll会触发清理。
+                    if (it->second.members.size() < 3) {
+                        m_sessions.erase(it);   //本地解散
+                    }
+                }
+            }
+            continue;
+        }else if (type == MSG_TYPE_TCP_GROUP_DISMISS) {
+            std::string gid(payload.begin(), payload.end());
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_sessions.erase(gid); //整个群移除
+            }
+            //等待对端断开
+            continue;
+        }else {
             return false;
         }
-
-        //将消息发送到主线程
-        QMetaObject::invokeMethod(this, [this, message]() {
-                                    emit groupMessageReceived(
-                                        QString::fromStdString(message.targetId),
-                                        QString::fromStdString(message.senderId),
-                                        QString::fromStdString(message.senderName),
-                                        QString::fromStdString(message.message));
-                                  },Qt::QueuedConnection);
     }
 }
 
 void GroupChat::cleanupFd(int fd)
 {
+    std::string connectKey;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (!m_closingFds.insert(fd).second) {  //已经在被清理中
+            return;
+        }
         auto infoIt = m_fdInfo.find(fd);
         if (infoIt != m_fdInfo.end()) {
             std::string groupId = infoIt->second.first;
@@ -824,9 +857,14 @@ void GroupChat::cleanupFd(int fd)
             if (sessionIt != m_sessions.end()) {
                 sessionIt->second.fds.erase(memberId);
             }
+            connectKey = groupId + "\n" + memberId;
             m_fdInfo.erase(infoIt);
         }
         m_receiveBuffers.erase(fd);
+        if (!connectKey.empty()) {
+            m_connectings.erase(connectKey);
+        }
+        m_closingFds.erase(fd);
     }
 
     if (m_epollFd >= 0) {
@@ -895,6 +933,110 @@ bool GroupChat::sendMsgToGroup(const std::string &groupId, const std::string &co
 
     //清理发送失败的连接
     for (const int fd : failedFds) {
+        cleanupFd(fd);
+    }
+
+    return true;
+}
+
+bool GroupChat::leaveGroup(const std::string &groupId, const std::string &memberId)
+{
+    int selfFd = -1;
+    std::vector<int> otherFds;
+    bool dismiss = false;
+
+    std::vector<int> notifyFds;           //所有其他成员的fd
+    std::vector<int> notifyTargets;       //实际用于发送通知的副本
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_sessions.find(groupId);
+        if (it == m_sessions.end()) return false;
+
+        m_connectings.erase(groupId + "\n" + memberId);
+
+        //记录自己的fd并移除
+        auto fdIt = it->second.fds.find(memberId);
+        if (fdIt != it->second.fds.end()) {
+            selfFd = fdIt->second;
+            it->second.fds.erase(fdIt);
+        }
+
+        //收集其他成员的fd，用于发送通知
+        for (const auto &[id, fd] : it->second.fds) {
+            if (id != memberId) { notifyFds.push_back(fd); }
+        }
+
+        it->second.members.erase(memberId);
+
+        notifyTargets = notifyFds;
+        if (it->second.members.size() < 3) {
+            dismiss = true;
+            otherFds = std::move(notifyFds);
+            m_sessions.erase(it);
+        }
+    }
+
+    //向其他成员发送退出通知
+    if (!notifyTargets.empty()) {
+        std::string leavePayload = groupId + "\n" + memberId;
+        auto packet = buildTcpPacket(MSG_TYPE_TCP_GROUP_LEAVE, leavePayload);
+
+        {
+            std::lock_guard<std::mutex> sendLock(m_sendMutex);
+            for (int fd : notifyTargets) {
+                sendPacketAll(fd, packet);
+            }
+        }
+    }
+
+    //清理自己的连接
+    if (selfFd >= 0) { cleanupFd(selfFd); }
+
+    //如果是解散，清理剩余所有连接
+    if (dismiss) {
+        for (int fd : otherFds) {
+            cleanupFd(fd);
+        }
+    }
+
+    return true;
+}
+
+bool GroupChat::dismissGroup(const std::string &groupId)
+{
+    std::vector<int> cleanFds;
+    std::vector<int> notifyFds;
+    std::string localId = m_chat->localId().toStdString();
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_sessions.find(groupId);
+        if (it == m_sessions.end()) return false;
+
+        for (const auto &[id, fd] : it->second.fds) {
+            cleanFds.push_back(fd);
+            m_connectings.erase(groupId + "\n" + id);
+            if (id != localId) {
+                notifyFds.push_back(fd);
+            }
+        }
+        m_sessions.erase(it);
+    }
+
+    //发送解散通知
+    if (!notifyFds.empty()) {
+        std::string dismissPayload = groupId;
+        auto packet = buildTcpPacket(MSG_TYPE_TCP_GROUP_DISMISS, dismissPayload);
+        {
+            std::lock_guard<std::mutex> sendLock(m_sendMutex);
+            for (int fd : notifyFds) {
+                sendPacketAll(fd, packet);
+            }
+        }
+    }
+
+    for (int fd : cleanFds) {
         cleanupFd(fd);
     }
 
