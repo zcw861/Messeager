@@ -23,7 +23,8 @@
 //         * 完善创建群聊请求的前端提交流程
 //     [v0.1.8]  HeZhiyuan       2026-06-25
 //         * 移除QML生成模拟群聊ID的旧逻辑，群聊ID统一由C++网络层生成
-
+//     [v0.1.9] HeZhiyuan    2026-06-27 18:12:45
+//         * 优化群聊邀请，不会因为广播刷新的原因导致要求群成员的选中状态清空
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -179,8 +180,21 @@ Window {
     //candidateSourceModel负责提供C++候选成员数据，candidateModel在候选成员字段基础上增加selected界面状态
     function rebuildCandidateModel()
     {
-        candidateModel.clear()
 
+        //保存刷新前已经选中的用户
+        var selectedPeerIds = {}
+
+        //遍历刷新前的本地候选成员模型
+        for (var currentRow = 0; currentRow < candidateModel.count; ++currentRow) {
+            //取得当前的用户数据
+            const currentUser = candidateModel.get(currentRow)
+            //记录已经选中的用户
+            if (currentUser.selected)
+                selectedPeerIds[currentUser.peerId] = true
+        }
+
+        candidateModel.clear()
+        //候选成员数据无效时清空人数并结束刷新
         if (candidateSourceModel === undefined || candidateSourceModel === null) {
             selectedCount = 0
             return
@@ -197,14 +211,13 @@ Window {
             const username = normalizedText(sourceUser.username)
             const ip = normalizedText(sourceUser.ip)
 
-            //把模型中的值明确转换为bool
+            //把模型中的值转换为bool
             const online = Boolean(sourceUser.online)
             const isSelf = Boolean(sourceUser.isSelf)
 
             //缺少稳定ID或用户名的异常记录不显示。
-            if (peerId.length === 0 || username.length === 0) {
+            if (peerId.length === 0 || username.length === 0)
                 continue
-            }
 
             //同一个peerId只能出现一次。
             if (addedPeerIds[peerId] === true)
@@ -212,13 +225,16 @@ Window {
 
             addedPeerIds[peerId] = true
 
+            //用户根据刷新前保存的peerId恢复选中状态
+            const selected = isSelf || selectedPeerIds[peerId] === true
+
             //离线成员也保留在候选列表中
             candidateModel.append({
                 peerId: peerId,
                 username: username,
                 ip: ip,
                 online: online,
-                selected: isSelf,
+                selected: selected,
                 isSelf: isSelf
             })
         }
