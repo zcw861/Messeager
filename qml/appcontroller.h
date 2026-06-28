@@ -180,6 +180,12 @@ private:
                                    const QString &inviterIp,
                                    const QStringList &memberRecords);
 
+    //处理网络层报告的群成员退出事件，同步删除数据库成员并刷新群聊界面
+    void handleGroupMemberLeft(const QString &groupId, const QString &memberId);
+
+    //处理网络层报告的群聊解散事件，删除本地群聊和相关数据
+    void handleGroupDismissed(const QString &groupId);
+
     //从数据库恢复全部GroupChat会话
     void restoreGroupSessions();
 

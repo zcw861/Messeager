@@ -79,6 +79,12 @@ AppController::AppController(QObject *parent)
 
     //文件传输完成
     connect(&m_translateFile, &TranslateFile::fileTransferFinished, this, &AppController::fileTransferFinished);
+
+    //收到其他群成员退群通知后，同步更新本地群成员数据库。
+    connect(&m_groupChat, &GroupChat::groupMemberLeft, this, &AppController::handleGroupMemberLeft);
+
+    //收到群聊解散通知后，同步删除本地群聊数据库记录。
+    connect(&m_groupChat, &GroupChat::groupDismissed, this, &AppController::handleGroupDismissed);
 }
 
 AppController::~AppController()
@@ -1432,14 +1438,39 @@ bool AppController::updateMyName(const QString &newName)
 
 bool AppController::leaveGroup(const QString &groupId)
 {
-    QString localPeerId = m_chat.localId();
+    QString normalizedGroupId = groupId.trimmed();
 
-    if (!m_groupChatDatabase.leaveGroup(groupId, localPeerId)){
-        reportError(QStringLiteral("退出群聊失败：")+ m_groupChatDatabase.lastError());
+    QString localPeerId = m_chat.localId().trimmed();
+
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化"));
         return false;
     }
 
-    if (m_currentGroupId == groupId) {
+    if (!DatabaseCheck::isValidGroupId(normalizedGroupId)) {
+        reportError(QStringLiteral("退出群聊失败：群聊ID必须是十位数字"));
+        return false;
+    }
+
+    if (DatabaseCheck::normalizePeerId(localPeerId).isEmpty()) {
+        reportError(QStringLiteral("退出群聊失败：本机用户ID无效"));
+        return false;
+    }
+
+    //先通知网络层,网络层向所有在线群成员发送退群通知，并关闭本机属于该群的全部TCP连接
+    if (!m_groupChat.leaveGroup(normalizedGroupId.toStdString(), localPeerId.toStdString())) {
+        reportError(QStringLiteral("退出群聊失败：当前群聊网络会话不存在"));
+        return false;
+    }
+
+    //本机已经退出该群，因此本地不再需要保存整个群聊
+    if (!m_groupChatDatabase.deleteGroup(normalizedGroupId)) {
+        reportError(QStringLiteral("删除本地群聊失败：") + m_groupChatDatabase.lastError());
+        return false;
+    }
+
+    //清除AppController保存的当前群聊成员和消息
+    if (m_currentGroupId == normalizedGroupId) {
         clearGroupConversation();
     }
 
@@ -1450,8 +1481,25 @@ bool AppController::leaveGroup(const QString &groupId)
 
 bool AppController::dismissGroup(const QString &groupId)
 {
-    const QString normalizedGroupId = groupId.trimmed();
+    QString normalizedGroupId = groupId.trimmed();
 
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化"));
+        return false;
+    }
+
+    if (!DatabaseCheck::isValidGroupId(normalizedGroupId)) {
+        reportError(QStringLiteral("解散群聊失败：群聊ID必须是十位数字"));
+        return false;
+    }
+
+    //向所有在线群成员发送解散通知，并关闭本机的全部群连接。
+    if (!m_groupChat.dismissGroup(normalizedGroupId.toStdString())) {
+        reportError(QStringLiteral("解散群聊失败：当前群聊网络会话不存在"));
+        return false;
+    }
+
+    //网络通知成功后删除本机数据库群聊。
     if (!m_groupChatDatabase.deleteGroup(normalizedGroupId)) {
         reportError(QStringLiteral("解散群聊失败：") + m_groupChatDatabase.lastError());
         return false;
@@ -1464,4 +1512,63 @@ bool AppController::dismissGroup(const QString &groupId)
     refreshGroups();
 
     return true;
+}
+
+void AppController::handleGroupMemberLeft(const QString &groupId, const QString &memberId)
+{
+    QString normalizedGroupId = groupId.trimmed();
+    QString normalizedMemberId = memberId.trimmed();
+
+    if (!DatabaseCheck::isValidGroupId(normalizedGroupId) || normalizedMemberId.isEmpty()) {
+        reportError(QStringLiteral("收到的退群通知数据无效"));
+        return;
+    }
+
+    //删除退出成员,数据库层会在剩余成员不足三人时自动删除整个群聊。
+    if (!m_groupChatDatabase.leaveGroup(normalizedGroupId, normalizedMemberId)) {
+        reportError(QStringLiteral("同步退群成员失败：") + m_groupChatDatabase.lastError());
+        return;
+    }
+
+    //检查数据库层是否已经因为成员不足三人而删除群聊
+    bool exist = false;
+
+    if (!m_groupChatDatabase.groupExists(normalizedGroupId, exist)) {
+        reportError(QStringLiteral("检查退群后的群聊状态失败：") + m_groupChatDatabase.lastError());
+        return;
+    }
+
+    if (m_currentGroupId == normalizedGroupId) {
+        if (exist) {
+            //群聊仍然存在时，只刷新当前成员列表
+            refreshGroupMembers();
+        } else {
+            //群聊不足三人并被删除时，清空当前群聊
+            clearGroupConversation();
+        }
+    }
+
+    refreshGroups();
+}
+
+void AppController::handleGroupDismissed(const QString &groupId)
+{
+    QString normalizedGroupId = groupId.trimmed();
+
+    if (!DatabaseCheck::isValidGroupId(normalizedGroupId)) {
+        reportError(QStringLiteral("收到的群聊解散通知包含无效群ID"));
+        return;
+    }
+
+    if (!m_groupChatDatabase.deleteGroup(normalizedGroupId)) {
+        reportError(QStringLiteral("同步群聊解散失败：") + m_groupChatDatabase.lastError());
+        return;
+    }
+
+    //当前正在查看被解散群聊时立即清空聊天界面数据
+    if (m_currentGroupId == normalizedGroupId) {
+        clearGroupConversation();
+    }
+
+    refreshGroups();
 }
