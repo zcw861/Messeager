@@ -34,6 +34,8 @@
 * * 群聊中显示其他成员的发送者名称
 * [v0.2.7] ZhouChengWei  2026-06-27
 * * 添加了打开群聊详情界面的按钮，主要用于退出/解散群聊
+* [v0.2.8] JiangFan  2026-06-28
+* * 将图片文件与其他文件区别开，能够缓存图片文件，直接显示到聊天界面
 */
 
 import QtQuick
@@ -168,6 +170,44 @@ Rectangle{
                     readonly property string content: String(modelData.content)
                     readonly property string senderName: modelData.senderName ? String(modelData.senderName) : ""
 
+                    //图片消息格式：[图片] /root/.../xxx.png  （[图片] 有个空格！）
+                    readonly property string imagePrefix: "[图片] "
+                    readonly property bool isImageMessage: content.startsWith(imagePrefix)
+                    readonly property string imagePath: isImageMessage ? content.substring(imagePrefix.length).trim() : ""
+
+                    //图片Url处理
+                    //数据库中保存的是 /root/.../xxx.png，所以这里转成 file:///root/.../xxx.png
+                    readonly property string imageSource:
+                        imagePath.length === 0 ? "" :
+                        imagePath.startsWith("file:/") ? imagePath :
+                        imagePath.startsWith("/") ? "file://" + imagePath :
+                        imagePath
+
+                    //图片最大显示范围，避免超大图片撑爆聊天窗口
+                    readonly property real maxImageWidth: Math.min(messageList.width * 0.7 - 16, 240)
+                    readonly property real maxImageHeight: 220
+
+                    //图片原始宽高，图片没加载完成前，先给一个默认值，避免布局为0
+                    readonly property real naturalImageWidth:
+                        messageImage.status === Image.Ready && messageImage.implicitWidth > 0
+                        ? messageImage.implicitWidth
+                        : 160
+
+                    readonly property real naturalImageHeight:
+                        messageImage.status === Image.Ready && messageImage.implicitHeight > 0
+                        ? messageImage.implicitHeight
+                        : 120
+
+                    //缩放比例：不超过最大宽度、不超过最大高度，同时不放大小图
+                    readonly property real imageScale:
+                        Math.min(maxImageWidth / naturalImageWidth,
+                                maxImageHeight / naturalImageHeight, 1)
+
+                    //最终图片显示宽高
+                    readonly property real imageDisplayWidth: naturalImageWidth * imageScale
+                    readonly property real imageDisplayHeight: naturalImageHeight * imageScale
+
+
                     width: messageList.width
                     spacing: 3
 
@@ -198,9 +238,13 @@ Rectangle{
 
                             Layout.maximumWidth: messageList.width * 0.7
 
-                            Layout.preferredWidth: Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
+                            Layout.preferredWidth: messageDelegate.isImageMessage
+                                                   ? messageDelegate.imageDisplayWidth + 16
+                                                   : Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
 
-                            Layout.preferredHeight: messageText.implicitHeight + 18
+                            Layout.preferredHeight: messageDelegate.isImageMessage
+                                                    ? messageDelegate.imageDisplayHeight + 16
+                                                    : messageText.implicitHeight + 18
 
                             radius: 8
 
@@ -208,6 +252,9 @@ Rectangle{
 
                             Text {
                                 id: messageText
+
+                                //图片消息不显示文本
+                                visible: !messageDelegate.isImageMessage
 
                                 width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
 
@@ -223,6 +270,23 @@ Rectangle{
                                 color: messageDelegate.fromMe ? "#FFFFFF" : "#222222"
 
                                 wrapMode: Text.Wrap
+                            }
+
+                            Image {
+                                id: messageImage
+
+                                visible: messageDelegate.isImageMessage
+
+                                width: messageDelegate.imageDisplayWidth
+                                height: messageDelegate.imageDisplayHeight
+
+                                anchors.fill: parent
+                                anchors.margins: 8
+
+                                source: messageDelegate.imageSource
+
+                                fillMode: Image.PreserveAspectFit //保持图片原始宽高比
+                                asynchronous: true //异步加载图片（防止图片加载卡住节目）
                             }
                         }
 

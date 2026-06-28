@@ -35,8 +35,10 @@
 //         * 优化了修改名字时需要重新登录对方才会显示的逻辑，现在修改之后对方就会收到新名字
 //     [v0.2.2] HeZhiyuan    2026-06-27 15:40:19
 //         * 优化更改用户名后群聊用户名更新问题，修复在用户列表删除用户，群聊用户列表显示“？”问题
-//     [v0.2.3  ZhouChengWei     2026-06-27 18:05:50
+//     [v0.2.3]  ZhouChengWei     2026-06-27 18:05:50
 //         * 实现了退出和解散群聊函数
+//     [v0.2.3]  JiangFan     2026-06-28
+//         * 将普通文件处理与图片文件处理分开，完成 图片文件缓存到data目录再显示到消息列表 的功能
 
 #include "appcontroller.h"
 
@@ -47,6 +49,10 @@
 #include <QUuid>
 #include <chrono>
 #include <vector>
+#include <QFile>
+#include <QDir>
+#include <QCoreApplication>
+#include <QDate>
 
 AppController::AppController(QObject *parent)
     : QObject(parent),
@@ -1032,11 +1038,50 @@ void AppController::sendFile(const QString &peerId,
     }
 
     // 记录一条本地文件发送消息，方便聊天窗口立即显示。
-    const QString displayMessage =
-        QStringLiteral("[发送文件] %1").arg(fileInfo.fileName());
+    const QString fileSuffix = fileInfo.suffix().toLower();
+
+    const bool isImageFile = fileSuffix == QStringLiteral("png") || fileSuffix == QStringLiteral("jpg")
+                             || fileSuffix == QStringLiteral("jpeg") || fileSuffix == QStringLiteral("bmp")
+                             || fileSuffix == QStringLiteral("gif") || fileSuffix == QStringLiteral("webp");
+
+    QString displayMessage;
+
+    //如果是图片，先复制到程序运行目录下的data目录
+    //聊天记录不保存原始图片路径！（避免原图被删除或移动不好管理）
+    if (isImageFile) {
+        QDir dataDir(QCoreApplication::applicationFilePath() + QStringLiteral("/data"));
+
+        if (!dataDir.exists()) {
+            if (!dataDir.mkpath(QStringLiteral("."))) {
+                reportError(QStringLiteral("发送图片失败： 无法创建data目录"));
+                return;
+            }
+        }
+
+        //不沿用原文件名（避免影响路径解析）
+        const QString cacheFileName = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"))
+                                      + QStringLiteral(".") + fileSuffix;
+
+        const QString cachePath = dataDir.filePath(cacheFileName);
+
+        if (QFile::exists(cachePath)) QFile::remove(cachePath);
+
+        if (!QFile::copy(localFilePath, cachePath)) {
+            reportError(QStringLiteral("发送图片失败：复制图片到data目录失败"));
+            return;
+        }
+
+        //数据库只保存本地绝对路径
+        displayMessage = QStringLiteral("[图片] ") + QFileInfo(cachePath).absolutePath();
+    }
+
+    else {
+        //非图片仍然按普通文件消息显示
+        displayMessage = QStringLiteral("[发送文件] %1").arg(fileInfo.fileName());
+    }
 
     if (!m_privateChatDatabase.saveMessage(normalizedPeerId, true, displayMessage)) {
-        reportError(QStringLiteral("保存文件发送记录失败：") + m_privateChatDatabase.lastError());
+        reportError(QStringLiteral("保存文件发送记录失败： ") + m_privateChatDatabase.lastError());
         return;
     }
 
