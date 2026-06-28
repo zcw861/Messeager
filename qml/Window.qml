@@ -53,7 +53,8 @@
 //         * 对退出群聊确定按钮做了默认焦点处理，现在按enter就能退出
 //     [v0.2.9] HeZhiyuan    2026-06-27 23:48:52
 //         * 优化退出群聊时焦点选择以及按键处理
-
+//     [v0.3.0] HeZhiyuan    2026-06-28 20:45:17
+//         * 修改在暗色模式下，退出群聊的显示问题
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -1545,7 +1546,8 @@ ApplicationWindow {
 
         function confirmLeaveGroup() {
             if (appController.leaveGroup(root.currentGroupId))
-                exitGroupConfirmDialog.accept()
+                exitGroupCon* *[v0.3.1] HeZhiyuan 2026-06-26
+                        *   完善群聊卡片边框与用户统一，增加点击、悬停时的颜色变化firmDialog.accept()
         }
 
         onOpened: {
@@ -1600,6 +1602,7 @@ ApplicationWindow {
                     text: "退出群聊"
                     font.pixelSize: 16
                     font.bold: true
+                    color: "black"
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
@@ -1607,6 +1610,7 @@ ApplicationWindow {
                 Label {
                     text: "确定要退出该群聊吗？"
                     font.pixelSize: 16
+                    color: "black"
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }

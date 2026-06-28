@@ -25,6 +25,8 @@
 //         * 移除QML生成模拟群聊ID的旧逻辑，群聊ID统一由C++网络层生成
 //     [v0.1.9] HeZhiyuan    2026-06-27 18:12:45
 //         * 优化群聊邀请，不会因为广播刷新的原因导致要求群成员的选中状态清空
+//     [v0.2.0] HeZhiyuan    2026-06-28 20:45:51
+//         * 在创建群聊时选择离线成员时会弹出无法创建的提示窗口
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -45,8 +47,7 @@ Window {
     //当前已经选中的总人数(包含自己)
     property int selectedCount: 0
 
-    //当前是否正在向C++提交群聊创建请求
-    //为true时禁用确定按钮，避免用户连续点击，导致同一组成员创建多个不同的群聊
+    //当前是否正在向C++提交群聊创建请求，为true时禁用确定按钮，避免用户连续点击，导致同一组成员创建多个不同的群聊
     property bool creationInProgress: false
 
     //用户确认创建群聊后，向PeerPanel发送创建请求
@@ -54,7 +55,7 @@ Window {
     //真实groupId必须由C++网络层GroupChat统一生成
     signal groupCreationRequested(string groupName, var members)
 
-    //人数满足要求，并且当前没有正在执行的创建请求时，才允许再次点击确定按钮
+    //人数达到要求并且当前没有正在提交创建请求时，允许点击确定按钮
     readonly property bool canCreateGroup: selectedCount >= minGroupMemberCount && !creationInProgress
 
     //距离允许创建群聊还缺少多少人
@@ -150,6 +151,29 @@ Window {
         return members
     }
 
+    //收集当前已经选中处于离线状态的成员
+    function collectSelectedOfflineMemberNames()
+    {
+        var offlineNames = []
+
+        //遍历当前候选成员模型
+        for (var row = 0; row < candidateModel.count; ++row) {
+            const user = candidateModel.get(row)
+
+            if (!user.selected)
+                continue
+
+            if (user.isSelf)
+                continue
+
+            //成员当前不在线时保存其用户名
+            if (!user.online)
+                offlineNames.push(user.username)
+        }
+
+        return offlineNames
+    }
+
     //根据已选择成员生成默认群名称
     //members是collectSelectedMembers()返回的数组
     //每个元素都包含username、peerId、ip等字段
@@ -239,6 +263,7 @@ Window {
             })
         }
 
+        //模型发生变化后重新统计已选择人数
         recountSelectedUsers()
     }
 
@@ -253,7 +278,7 @@ Window {
             candidateModel.setProperty(row, "selected", user.isSelf)
         }
 
-        //重置模型后重新统计人数
+        //重置模型后重新统计人数。
         recountSelectedUsers()
     }
 
@@ -275,6 +300,139 @@ Window {
 
     ListModel {
         id: candidateModel
+    }
+
+    //用户点击确定按钮时，如果已选择成员中包含离线用户，则显示该弹窗
+    Dialog {
+        id: offlineMemberDialog
+
+        //保存本次检查到的离线成员名称
+        property string offlineMemberNames: ""
+
+        //弹窗显示时阻止用户继续操作后面的创建群聊窗口
+        modal: true
+
+        //让弹窗打开后能够接收键盘焦点。
+        focus: true
+
+        //弹窗完全打开后，把活动焦点交给“知道了”按钮。
+        onOpened: offlineDialogConfirmButton.forceActiveFocus()
+
+        width: 380
+        height: 200
+
+        //将弹窗放置在创建群聊窗口中央
+        x: (inviteUserInterface.width - width) / 2
+        y: (inviteUserInterface.height - height) / 2
+
+        padding: 0
+
+        background: Rectangle {
+            radius: 10
+            color: "#ffffff"
+            border.width: 1
+            border.color: "#dcdcdc"
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            //弹窗标题区域
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 48
+
+                color: "#f5f5f5"
+                radius: 10
+
+                Text {
+                    width: parent.width
+                    height: parent.height
+                    leftPadding: 18
+
+                    text: qsTr("无法创建群聊")
+                    color: "#222222"
+                    font.pixelSize: 16
+                    font.bold: true
+
+                    horizontalAlignment: Text.AlignLeft
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                Layout.topMargin: 16
+                Layout.bottomMargin: 12
+
+                text: qsTr("以下成员当前离线，无法邀请进入群聊：\n%1")
+                        .arg(offlineMemberDialog.offlineMemberNames)
+
+                color: "#333333"
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            //弹窗底部按钮区域
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 54
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+                Layout.bottomMargin: 8
+
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                Rectangle {
+                    id: offlineDialogConfirmButton
+
+                    Layout.preferredWidth: 70
+                    Layout.preferredHeight: 30
+                    activeFocusOnTab: true
+
+                    radius: 8
+
+                    color: "#029aff"
+
+                    Text {
+                        width: parent.width
+                        height: parent.height
+
+                        text: qsTr("确定")
+                        color: "#ffffff"
+                        font.pixelSize: 13
+
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    HoverHandler {
+                        id: offlineDialogConfirmHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                        onTapped: offlineMemberDialog.close()
+                    }
+                    //处理回车键
+                    Keys.onPressed: function(event) {
+                        if (event.key === Qt.Key_Return) {
+                            offlineMemberDialog.close()
+                            event.accepted = true
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Rectangle {
@@ -733,21 +891,30 @@ Window {
                             gesturePolicy: TapHandler.ReleaseWithinBounds
 
                             onTapped: {
-                                //人数不足或正在创建时，不重复提交
+                                //人数不足或正在提交创建请求时不处理
                                 if (!inviteUserInterface.canCreateGroup)
                                     return
 
-                                //收集当前全部已选择成员
-                                var members = inviteUserInterface.collectSelectedMembers()
+                                //用户点击确定后再检查当前已选择成员中是否包含离线成员
+                                const offlineNames = inviteUserInterface.collectSelectedOfflineMemberNames()
 
-                                //默认群名由前端根据当前显示名称生成
-                                var groupName = inviteUserInterface.buildDefaultGroupName(members)
+                                //存在离线成员时打开提示弹窗，并停止本次创建流程
+                                if (offlineNames.length > 0) {
+                                    offlineMemberDialog.offlineMemberNames = offlineNames.join("、")
+                                    offlineMemberDialog.open()
+                                    return
+                                }
 
-                                //先锁定按钮，避免重复点击
+                                const members = inviteUserInterface.collectSelectedMembers()
+
+                                //根据当前成员名称生成默认群名称
+                                const groupName = inviteUserInterface.buildDefaultGroupName(members)
+
+                                //锁定确定按钮，防止连续点击产生重复创建请求
                                 inviteUserInterface.creationInProgress = true
 
-                                //只发送群名称和成员
-                                inviteUserInterface.groupCreationRequested( groupName, members)
+                                //向外部发送正式的群聊创建请求
+                                inviteUserInterface.groupCreationRequested(groupName, members)
                             }
                         }
                     }

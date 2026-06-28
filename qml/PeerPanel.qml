@@ -57,6 +57,8 @@
 *   简化群聊创建请求的转发和创建结果处理流程
 * *[v0.3.1] HeZhiyuan 2026-06-26
 *   完善群聊卡片边框与用户统一，增加点击、悬停时的颜色变化
+* *[v0.3.2] HeZhiyuan 2026-06-28
+*   修改在暗色模式下创建群聊以及加好友卡片的显示问题
 */
 
 import QtQuick
@@ -230,8 +232,26 @@ Rectangle {
                         id: featureSet
                         width: 100
 
+                        background: Rectangle {
+                            implicitWidth: 100
+                            color: "#FFFFFF"
+                            radius: 6
+                            border.color: "#D9D9D9"
+                            border.width: 1
+                        }
+
                         MenuItem{
+                            id: createGroupMenuItem
                             text: qsTr("创建群聊")
+
+                            contentItem: Text {
+                                text: createGroupMenuItem.text
+                                color: "#333333"
+                                font: createGroupMenuItem.font
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+
                             //MenuItem本身就是可以点击的控件 并自带triggered信号,所以不应该用TapHandler
                             onTriggered: {
                                 peerPanel.clearSearchFocus()
@@ -240,7 +260,16 @@ Rectangle {
 
                         }
                         MenuItem{
+                            id: addFriendMenuItem
                             text: qsTr("加好友")
+
+                            contentItem: Text {
+                                text: addFriendMenuItem.text
+                                color: "#333333"
+                                font: addFriendMenuItem.font
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
                         }
                     }
                 }
