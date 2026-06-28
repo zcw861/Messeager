@@ -54,7 +54,7 @@
 //     [v0.2.9] HeZhiyuan    2026-06-27 23:48:52
 //         * 优化退出群聊时焦点选择以及按键处理
 //     [v0.3.0] HeZhiyuan    2026-06-28 20:45:17
-//         * 修改在暗色模式下，退出群聊的显示问题
+//         * 修改在暗色模式下，退出群聊的显示
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -1546,8 +1546,7 @@ ApplicationWindow {
 
         function confirmLeaveGroup() {
             if (appController.leaveGroup(root.currentGroupId))
-                exitGroupCon* *[v0.3.1] HeZhiyuan 2026-06-26
-                        *   完善群聊卡片边框与用户统一，增加点击、悬停时的颜色变化firmDialog.accept()
+                exitGroupConfirmDialog.accept()
         }
 
         onOpened: {
