@@ -39,6 +39,8 @@
 //         * 实现了退出和解散群聊函数
 //     [v0.2.3]  JiangFan     2026-06-28
 //         * 将普通文件处理与图片文件处理分开，完成 图片文件缓存到data目录再显示到消息列表 的功能
+//     [v0.2.4]  JiangFan     2026-06-29
+//         * 完善图片消息发送与预览功能（用的是本地的Gwenview），修复自己发送给自己图片保存两次的bug
 
 #include "appcontroller.h"
 
@@ -53,6 +55,12 @@
 #include <QDir>
 #include <QCoreApplication>
 #include <QDate>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QDateTime>
+#include <QStandardPaths>
+#include <QImageReader>
+#include <QProcess>
 
 AppController::AppController(QObject *parent)
     : QObject(parent),
@@ -85,6 +93,9 @@ AppController::AppController(QObject *parent)
 
     //文件传输完成
     connect(&m_translateFile, &TranslateFile::fileTransferFinished, this, &AppController::fileTransferFinished);
+
+    //文件传输完成后，如果是自动接收的图片，则保存图片消息记录
+    connect(&m_translateFile, &TranslateFile::fileTransferFinished, this, &AppController::handleFileTransferFinished);
 
     //收到其他群成员退群通知后，同步更新本地群成员数据库。
     connect(&m_groupChat, &GroupChat::groupMemberLeft, this, &AppController::handleGroupMemberLeft);
@@ -1049,16 +1060,22 @@ void AppController::sendFile(const QString &peerId,
     //如果是图片，先复制到程序运行目录下的data目录
     //聊天记录不保存原始图片路径！（避免原图被删除或移动不好管理）
     if (isImageFile) {
-        QDir dataDir(QCoreApplication::applicationFilePath() + QStringLiteral("/data"));
+        const QString cacheRoot = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+
+        if (cacheRoot.isEmpty()) {
+            reportError(QStringLiteral("自动接收图片失败：无法获取系统临时目录！"));
+            return;
+        }
+
+        QDir dataDir(cacheRoot + QStringLiteral("/Messager"));
 
         if (!dataDir.exists()) {
             if (!dataDir.mkpath(QStringLiteral("."))) {
-                reportError(QStringLiteral("发送图片失败： 无法创建data目录"));
+                reportError(QStringLiteral("发送图片失败：无法创建图片缓存目录"));
                 return;
             }
         }
 
-        //不沿用原文件名（避免影响路径解析）
         const QString cacheFileName = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"))
                                       + QStringLiteral(".") + fileSuffix;
 
@@ -1067,16 +1084,33 @@ void AppController::sendFile(const QString &peerId,
         if (QFile::exists(cachePath)) QFile::remove(cachePath);
 
         if (!QFile::copy(localFilePath, cachePath)) {
-            reportError(QStringLiteral("发送图片失败：复制图片到data目录失败"));
+            reportError(QStringLiteral("发送图片失败：复制图片到缓存目录失败"));
             return;
         }
 
-        //数据库只保存本地绝对路径
-        displayMessage = QStringLiteral("[图片] ") + QFileInfo(cachePath).absolutePath();
+        QFile::setPermissions(cachePath,
+                              QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadGroup
+                                  | QFileDevice::ReadOther);
+
+        QImageReader reader(cachePath);
+
+        if (!reader.canRead()) {
+            QFile::remove(cachePath);
+
+            reportError(QStringLiteral("发送图片失败：该文件不是Qt可读取的图片"));
+            qWarning() << "图片校验失败:"
+                       << "source =" << localFilePath
+                       << "cache =" << cachePath
+                       << "error =" << reader.errorString();
+
+            return;
+        }
+
+        displayMessage = QStringLiteral("[图片] ") + QFileInfo(cachePath).absoluteFilePath();
     }
 
     else {
-        //非图片仍然按普通文件消息显示
+        //非图片文件仍然按普通文件消息显示
         displayMessage = QStringLiteral("[发送文件] %1").arg(fileInfo.fileName());
     }
 
@@ -1089,6 +1123,11 @@ void AppController::sendFile(const QString &peerId,
         refreshMessages();
     }
 
+    if (normalizedPeerId == m_chat.localId()) {
+        qInfo() << "给自己发送图片，只保存本地记录，不进行网络传输";
+        return;
+    }
+
     m_translateFile.sendFile(normalizedIp, localFilePath);
 
     qInfo() << "开始发送文件:"
@@ -1097,6 +1136,180 @@ void AppController::sendFile(const QString &peerId,
             << "ip =" << normalizedIp
             << "file =" << localFilePath
             << "size =" << fileInfo.size();
+}
+
+//本地文件路径转换(提供给Image.source)
+QUrl AppController::localFileUrl(const QString &pathOrUrl)
+{
+    const QString text = pathOrUrl.trimmed();
+
+    if (text.isEmpty()) { return QUrl(); }
+
+    const QUrl inputUrl(text);
+
+    QString localPath;
+
+    if (inputUrl.isLocalFile()) {
+        localPath = inputUrl.toLocalFile();
+    } else {
+        localPath = text;
+    }
+
+    return QUrl::fromLocalFile(QFileInfo(localPath).absoluteFilePath());
+}
+
+void AppController::openLocalFile(const QString &url)
+{
+    const QString text = url.trimmed();
+
+    if (text.isEmpty()) {
+        reportError(QStringLiteral("打开文件失败：路径为空！"));
+        return;
+    }
+
+    const QUrl inputUrl(text);
+
+    const QString localPath = inputUrl.isLocalFile() ? inputUrl.toLocalFile() : text;
+
+    const QFileInfo fileInfo(localPath);
+
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        reportError(QStringLiteral("打开文件失败：文件不存在！"));
+        return;
+    }
+
+    if (!fileInfo.isReadable()) {
+        reportError(QStringLiteral("打开文件失败：文件不可读！"));
+        return;
+    }
+
+    const bool started = QProcess::startDetached(
+        QStringLiteral("gwenview"),
+        QStringList() << fileInfo.absoluteFilePath()
+        );
+
+    if (!started) {
+        reportError(QStringLiteral("打开文件失败：无法启动图片查看器！"));
+        return;
+    }
+}
+
+//自动接收图片，保存到程序data目录
+void AppController::acceptImageFile(const QString &ip, const QString &fileName)
+{
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化！"));
+        return;
+    }
+
+    const QString normalizedIp = ip.trimmed();
+    const QString normalizedFileName = fileName.trimmed();
+
+    if (normalizedIp.isEmpty() || normalizedFileName.isEmpty()) {
+        reportError(QStringLiteral("自动接收图片失败: 发送方IP或者名字为空！"));
+        return;
+    }
+
+    const QString suffix = QFileInfo(normalizedFileName).suffix().toLower();
+
+    const bool isImageFile = suffix == QStringLiteral("png") || suffix == QStringLiteral("jpg")
+                             || suffix == QStringLiteral("jpeg") || suffix == QStringLiteral("bmp")
+                             || suffix == QStringLiteral("gif") || suffix == QStringLiteral("webp");
+
+    if (!isImageFile) {
+        reportError(QStringLiteral("自动接收图片失败：文件不是图片！"));
+        return;
+    }
+
+    const QString cacheRoot =
+        QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+
+    if (cacheRoot.isEmpty()) {
+        reportError(QStringLiteral("发送图片失败：无法获取系统临时目录！"));
+        return;
+    }
+
+    QDir dataDir(cacheRoot + QStringLiteral("/Messager"));
+
+    if (!dataDir.exists()) {
+        if (!dataDir.mkpath(QStringLiteral("."))) {
+            reportError(QStringLiteral("自动接收图片失败：无法创建data目录！"));
+            return;
+        }
+    }
+
+    const QString saveName = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"))
+                             + QStringLiteral(".") + suffix;
+
+    const QString savePath = dataDir.filePath(saveName);
+
+    //记录这次自动接收图片保存到哪里，传输完成后用于写入聊天记录
+    m_pendingImageSavePaths.insert(normalizedIp, savePath);
+
+    //复用普通文件传输接收逻辑
+    m_translateFile.acceptFile(normalizedIp, savePath);
+
+    qInfo() << "自动接收图片:"
+            << "fromIp =" << normalizedIp
+            << "fileName =" << normalizedFileName
+            << "savePath =" << savePath;
+}
+
+//文件传输完成后，处理自动接收的图片消息
+void AppController::handleFileTransferFinished(const QString &ip, const QString &fileName, bool isSuccess)
+{
+    const QString normalizedIp = ip.trimmed();
+
+    if (!m_pendingImageSavePaths.contains(normalizedIp)) {
+        return;
+    }
+
+    const QString savePath = m_pendingImageSavePaths.take(normalizedIp);
+
+    if (!isSuccess) {
+        QFile::remove(savePath);
+        qWarning() << "自动接收图片失败：" << normalizedIp << fileName;
+        return;
+    }
+
+    QFileInfo fileInfo(savePath);
+
+    if (!fileInfo.exists() || !fileInfo.isFile()) {
+        qWarning() << "自动接收图片完成，但本地文件不存在:" << savePath;
+        return;
+    }
+
+    QString peerId;
+
+    for (const QVariant &item : m_peers) {
+        const QVariantMap peer = item.toMap();
+
+        if (peer.value(QStringLiteral("ip")).toString().trimmed() == normalizedIp) {
+            peerId = peer.value(QStringLiteral("peerId")).toString().trimmed();
+            break;
+        }
+    }
+
+    if (peerId.isEmpty()) {
+        qWarning() << "自动接收图片完成，但没有找到发送方peerId:" << normalizedIp;
+        return;
+    }
+
+    const QString imageMessage =
+        QStringLiteral("[图片] ") + fileInfo.absoluteFilePath();
+
+    if (!m_privateChatDatabase.saveMessage(peerId, false, imageMessage)) {
+        reportError(QStringLiteral("保存接收图片消息失败：") + m_privateChatDatabase.lastError());
+        return;
+    }
+
+    if (m_currentPeerId == peerId) {
+        refreshMessages();
+    }
+
+    qInfo() << "接收图片消息已保存:"
+            << "peerId =" << peerId
+            << "path =" << fileInfo.absoluteFilePath();
 }
 
 //接受该IP发送的文件

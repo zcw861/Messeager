@@ -23,6 +23,7 @@
 #include <QSet>
 #include <QtQml/qqmlregistration.h>
 #include <QStringList>
+#include <QHash>
 #include "databasecore.h"
 #include "databasecheck.h"
 #include "peerdatabase.h"
@@ -95,6 +96,9 @@ public:
 
     Q_INVOKABLE QString localIp(); //获取自己IP
 
+
+    Q_INVOKABLE QUrl localFileUrl(const QString &pathOrUrl); //把本地文件路径转换为 QML Image.source 可用的 file URL
+
     //向指定局域网用户发送消息并在数据库中保存本机发送记录
     Q_INVOKABLE void sendMessage(const QString &peerId,
                                  const QString &username,
@@ -106,11 +110,17 @@ public:
                               const QString &ip,
                               const QUrl &fileUrl);
 
+    //调用系统默认程序打开本地文件
+    Q_INVOKABLE void openLocalFile(const QString &url);
+
     //接受文件请求
     Q_INVOKABLE void acceptFile(const QString &ip, const QUrl &saveUrl);
 
     //拒绝文件请求
     Q_INVOKABLE void rejectFile(const QString &ip);
+
+    //自动接收图片文件，保存到程序data目录
+    Q_INVOKABLE void acceptImageFile(const QString &ip, const QString &fileName);
 
     Q_INVOKABLE QString savedUserName() const; //读取上次登录用户名
     Q_INVOKABLE void clearSavedUserName();     //清除上次登录用户名
@@ -204,6 +214,9 @@ private:
     //读取当前选中群聊的历史消息，没有选中群聊时清空群消息缓存
     void refreshGroupMessages();
 
+    //处理传输完成的函数
+    void handleFileTransferFinished(const QString &ip, const QString &fileName, bool isSuccess);
+
 private:
     DatabaseCore m_databaseCore;
     //用户身份和在线用户数据库
@@ -241,4 +254,7 @@ private:
     QString m_lastError;    //最近一次产生的错误信息
 
     bool m_ready{false};    //数据库和网络服务是否已经完成初始化
+
+    //自动接收图片时，记录发送方IP对应的本地保存路径
+    QHash<QString, QString> m_pendingImageSavePaths;
 };

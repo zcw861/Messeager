@@ -50,6 +50,7 @@ Rectangle{
     property string currentPeerName: "请选择用户"
     property var messageModel: null //MessageWindow.qml 传入的消息模型
     property bool isGroupChat: false
+    property var appController: null
 
     color: "#FFFFFF"
 
@@ -176,12 +177,11 @@ Rectangle{
                     readonly property string imagePath: isImageMessage ? content.substring(imagePrefix.length).trim() : ""
 
                     //图片Url处理
-                    //数据库中保存的是 /root/.../xxx.png，所以这里转成 file:///root/.../xxx.png
-                    readonly property string imageSource:
-                        imagePath.length === 0 ? "" :
-                        imagePath.startsWith("file:/") ? imagePath :
-                        imagePath.startsWith("/") ? "file://" + imagePath :
-                        imagePath
+                    //数据库中保存的是/root/.../xxx.png，所以这里转成 file:///root/.../xxx.png
+                    readonly property url imageSource:
+                        messageDelegate.isImageMessage && root.appController !== null
+                        ? root.appController.localFileUrl(messageDelegate.imagePath)
+                        : ""
 
                     //图片最大显示范围，避免超大图片撑爆聊天窗口
                     readonly property real maxImageWidth: Math.min(messageList.width * 0.7 - 16, 240)
@@ -198,7 +198,7 @@ Rectangle{
                         ? messageImage.implicitHeight
                         : 120
 
-                    //缩放比例：不超过最大宽度、不超过最大高度，同时不放大小图
+                    //缩放比例：不超过最大宽度、不超过最大高度
                     readonly property real imageScale:
                         Math.min(maxImageWidth / naturalImageWidth,
                                 maxImageHeight / naturalImageHeight, 1)
@@ -206,7 +206,6 @@ Rectangle{
                     //最终图片显示宽高
                     readonly property real imageDisplayWidth: naturalImageWidth * imageScale
                     readonly property real imageDisplayHeight: naturalImageHeight * imageScale
-
 
                     width: messageList.width
                     spacing: 3
@@ -283,10 +282,41 @@ Rectangle{
                                 anchors.fill: parent
                                 anchors.margins: 8
 
-                                source: messageDelegate.imageSource
+                                source: messageDelegate.isImageMessage
+                                        ? messageDelegate.imageSource
+                                        : ""
 
                                 fillMode: Image.PreserveAspectFit //保持图片原始宽高比
-                                asynchronous: true //异步加载图片（防止图片加载卡住节目）
+                                asynchronous: true //异步加载图片（防止图片加载卡住界面）
+                                retainWhileLoading: true
+
+                                TapHandler {
+                                    acceptedButtons: Qt.LeftButton //限制左键点
+
+                                    onTapped: {
+                                        if (!messageDelegate.isImageMessage)
+                                            return
+
+                                        if (messageDelegate.imagePath.length === 0)
+                                        {
+                                            console.log("图片打开失败：路径为空！")
+                                            return
+                                        }
+
+                                        if (root.appController === null)
+                                        {
+                                            console.log("图片打开失败：appController为空")
+                                            return
+                                        }
+
+                                        console.log("点击图片，准备打开:", messageDelegate.imagePath)
+                                        root.appController.openLocalFile(messageDelegate.imagePath)
+                                    }
+                                }
+
+                                HoverHandler {
+                                        cursorShape: Qt.PointingHandCursor
+                                }
                             }
                         }
 

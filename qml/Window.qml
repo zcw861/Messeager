@@ -134,15 +134,34 @@ ApplicationWindow {
         //收到对方文件发送请求
         onFileRequestReceived: function(fromIp, fileName, fileSize)
         {
+            //如果文件请求来自本机，直接忽略。
+            //自己给自己发文件时，本地sendFile已经保存了聊天记录，不需要再接收一次。
+            if (fromIp === appController.localIp()) {
+                console.log("忽略本机文件请求:", fromIp, fileName)
+                return
+            }
+
             root.pendingFileIp = fromIp
             root.pendingFileName = fileName
             root.pendingFileSize = fileSize
             root.fileTransferPercent = 0
-            root.fileTransferStatusText = qsTr("收到文件请求")
 
+            //图片文件自动接收，不弹出接收/拒绝面板
+            if (root.isImageFileName(fileName)) {
+                root.fileTransferStatusText = qsTr("正在自动接收图片")
+                receiveFilePanel.visible = false
+
+                console.log("收到图片文件请求，自动接收:", fromIp, fileName, fileSize)
+                appController.acceptImageFile(fromIp, fileName)
+
+                return
+            }
+
+            //普通文件才弹出接收/拒绝面板
+            root.fileTransferStatusText = qsTr("收到文件请求")
             receiveFilePanel.visible = true
 
-            console.log("收到文件请求", fromIp, fileName, fileSize)
+            console.log("收到普通文件请求", fromIp, fileName, fileSize)
         }
 
         //文件传输进度
@@ -195,6 +214,19 @@ ApplicationWindow {
             size = fileSize / (1024 * 1024 * 1024)
             return size.toFixed(1) + " GB"
         }
+    }
+
+    //判断图片的函数
+    function isImageFileName(fileName)
+    {
+        var name = String(fileName).toLowerCase()
+
+        return name.endsWith(".png")
+            || name.endsWith(".jpg")
+            || name.endsWith(".jpeg")
+            || name.endsWith(".bmp")
+            || name.endsWith(".gif")
+            || name.endsWith(".webp")
     }
 
     //校验消息并根据当前会话类型交给C++发送
@@ -422,7 +454,7 @@ ApplicationWindow {
                             border.width: 1
                         }
 
-                        //回车确认修改(这里不用onAccepted了，用更高级的，可以对失去焦点响应
+                        //回车确认修改(这里不用onAccepted了，用更高级的，可以对失去焦点响应)
                         onEditingFinished: {
                             root.changeMyName(myNameEdit.text)
                         }
@@ -716,8 +748,10 @@ ApplicationWindow {
                                     currentPeerId: root.currentConversationId
                                     currentPeerName: root.currentConversationName
                                     isGroupChat: root.currentIsGroup
-                                    messageModel: root.currentIsGroup ? appController.groupMessages :
-                                                                        appController.messages
+                                    messageModel: root.currentIsGroup
+                                                  ? appController.groupMessages
+                                                  : appController.messages
+                                    appController: appController
                                 }
 
                                 //群成员列表
