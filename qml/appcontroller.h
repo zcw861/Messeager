@@ -13,6 +13,9 @@
 //           接收群名称和群成员列表，并返回网络层生成的真实groupId
 //     [v0.1.5] ZhouChengWei    2026-06-27 18:04:57
 //         * 添加了退出/解散群聊函数
+//     [v0.1.6] HeZhiyuan    2026-06-29 23:49:41
+//         * 群聊列表增加isActive状态
+//           新增：删除已退出群聊的QML调用接口
 
 #pragma once
 
@@ -55,8 +58,8 @@ class AppController : public QObject
     //数据库中的在线和离线用户都会保留。
     Q_PROPERTY(QVariantList groupCandidates READ groupCandidates NOTIFY groupCandidatesChanged FINAL)
 
-    //提供给QML的群聊列表，每个元素由DatabaseManager::loadGroups()返回，主要包含：
-    //groupId、groupName、creatorId、memberCount、memberSummary、createdAt和updatedAt
+    //提供给QML的群聊列表，每个元素由GroupChatDatabase::loadGroups()返回，主要包含：
+    //groupId、groupName、creatorId、isActive、memberCount、memberSummary、createdAt和updatedAt
     Q_PROPERTY(QVariantList groups READ groups NOTIFY groupsChanged FINAL)
 
     //提供给QML的当前选中群聊的成员列表，成员数据来自DatabaseManager::loadGroupMembers()，
@@ -139,6 +142,9 @@ public:
     //退出群聊（成员）
     Q_INVOKABLE bool leaveGroup(const QString &groupId);
 
+    //彻底删除已经退出的群聊及其本地成员和消息记录，仍处于活动状态的群聊不能删除
+    Q_INVOKABLE bool deleteExitedGroup(const QString &groupId);
+
     //创建一个新的群聊
     //成功时返回网络层生成的真实groupId
     //失败时返回空字符串，并通过operationFailed信号报告原因
@@ -161,6 +167,7 @@ signals:
     void lastErrorChanged();    //近一次错误信息发生变化时发出
     void readyChanged();    //控制器初始化状态发生变化时发出
     void peerDeleted(const QString &peerId);    //删除成功后通知QML清理选中状态
+    void groupDeleted(const QString &groupId);      //彻底删除群聊成功后清理当前群聊状态
     void operationFailed(const QString &message);   //业务操作失败时发出
 
     void fileRequestReceived(const QString &fromfp, const QString &fileName, qint64 fileSize); //收到对方文件发送请求

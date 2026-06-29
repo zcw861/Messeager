@@ -55,6 +55,10 @@
 //         * 优化退出群聊时焦点选择以及按键处理
 //     [v0.3.0] HeZhiyuan    2026-06-28 20:45:17
 //         * 修改在暗色模式下，退出群聊的显示
+//     [v0.3.1] HeZhiyuan    2026-06-29 23:53:46
+//         * 增加当前群聊活动状态管理
+//           退出群聊后保留历史消息并切换为只读显示状态
+//           退出群聊后隐藏消息输入框
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -94,6 +98,7 @@ ApplicationWindow {
     //群聊信息
     property string currentGroupId: ""
     property string currentGroupName: ""
+    property bool currentGroupActive: false
     property bool currentIsGroup: false //当前会话是否为群聊
     property bool currentIsShrink: false //当前右侧用户列表是否收缩
     //当前界面是否存在活动会话
@@ -129,6 +134,15 @@ ApplicationWindow {
             inputPanel.clear()
 
             console.log("已删除当前聊天用户:", peerId)
+        }
+
+        //彻底删除群聊成功后，再清理QML保存的当前群聊状态
+        onGroupDeleted: function(groupId) {
+            if (root.currentGroupId !== groupId)
+                return
+
+            root.closeGroupChat()
+            groupDetailDrawer.close()
         }
 
         //收到对方文件发送请求
@@ -244,6 +258,10 @@ ApplicationWindow {
             if (root.currentGroupId.length === 0)
                 return
 
+            //已经退出的群聊只用于查看历史记录，不能再从输入框发送消息
+            if (!root.currentGroupActive)
+                return
+
             //网络发送和数据库保存交给AppController
             appController.sendGroupMessage(root.currentGroupId, normalizedContent)
             return
@@ -288,7 +306,7 @@ ApplicationWindow {
     }
 
     //打开指定群聊并加载群成员和群消息
-    function openGroupChat(groupId, groupName)
+    function openGroupChat(groupId, groupName, groupActive)
     {
         //没有有效群ID时不切换界面
         if (groupId.length === 0)
@@ -303,6 +321,7 @@ ApplicationWindow {
         //保存当前群聊状态
         root.currentGroupId = groupId
         root.currentGroupName = groupName
+        root.currentGroupActive = groupActive
         root.currentIsGroup = true
         root.currentIsShrink = false
 
@@ -317,6 +336,7 @@ ApplicationWindow {
     function closeGroupChat() {
         root.currentGroupId = ""
         root.currentGroupName = ""
+        root.currentGroupActive = false
         root.currentIsGroup = false
         root.currentIsShrink = false
 
@@ -684,12 +704,17 @@ ApplicationWindow {
                     }
 
                     //接收PeerPanel发出的群聊选择信号
-                    onGroupSelected: function(groupId, groupName){
-                        root.openGroupChat(groupId, groupName)
+                    onGroupSelected: function(groupId, groupName, groupActive) {
+                        root.openGroupChat(groupId, groupName, groupActive)
+                    }
+                    //接收PeerPanel发出的群聊彻底删除请求
+                    onGroupDeleteRequested: function(groupId) {
+                        appController.deleteExitedGroup(groupId)
                     }
                     onGroupClosed: {
                         root.closeGroupChat()
                     }
+
 
                 }
 
@@ -1042,7 +1067,8 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 200
 
-                            visible: root.hasActiveConversation
+                            //私聊和活动群聊显示输入框，已经退出的群聊只显示历史消息
+                            visible: root.hasActiveConversation && (!root.currentIsGroup || root.currentGroupActive)
                             currentPeerId: root.currentConversationId
                             fileSendingEnabled: !root.currentIsGroup
                             isVisibleFileButton: !root.currentIsGroup
@@ -1058,6 +1084,31 @@ ApplicationWindow {
                             onFileSendRequested: function(fileUrl) {
                                 //由Window检查当前是否为私聊，再将文件发送请求交给C++。
                                 root.trySendFile(fileUrl)
+                            }
+                        }
+                        //退出群聊后用只读提示替代输入框，避免用户误以为仍然可以发送消息
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 50
+
+                            visible: root.currentIsGroup
+                                     && root.currentGroupId.length > 0
+                                     && !root.currentGroupActive
+
+                            color: "#F5F5F5"
+                            border.color: "#E5E5E5"
+                            border.width: 1
+
+                            Text {
+                                width: parent.width
+                                height: parent.height
+
+                                text: qsTr("你已退出该群聊，只能查看历史消息")
+                                color: "#6B7280"
+                                font.pixelSize: 14
+
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
                             }
                         }
                     }

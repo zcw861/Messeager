@@ -12,6 +12,9 @@
 //     [v0.1.4] ZhouChengWei     2026-06-27 21:59:04
 //         * 修改退群处理函数的逻辑，现在删除之后少于3人时群聊会直接解散
 //         * 同时本地群聊表数据也会清空，界面不会再显示已退出/已解散的群
+//     [v0.1.5] HeZhiyuan    2026-06-29 23:48:24
+//         * 在群聊表增加is_active，兼容旧版本数据库表结构
+//           修改主动退群处理，禁止向已经退出的群聊继续保存新消息
 
 #include "groupchatdatabase.h"
 
@@ -50,6 +53,7 @@ bool GroupChatDatabase::initSchema()
     //group_id使用网络层生成的唯一标识
     //group_name保存界面显示的群名称
     //creator_id保存创建该群聊的用户UUID
+    //is_active表示本机是否仍然属于该群聊，1表示正常群聊，0表示已经退出但保留历史记录
     //created_at记录群聊第一次创建的时间
     //updated_at用于后续按最近活动时间排列群聊
     const QString createChatGroupsSql = R"(
@@ -57,6 +61,7 @@ bool GroupChatDatabase::initSchema()
             group_id TEXT PRIMARY KEY,
             group_name TEXT NOT NULL CHECK(length(trim(group_name)) > 0),
             creator_id TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
@@ -65,6 +70,38 @@ bool GroupChatDatabase::initSchema()
     if (!m_databaseCore.execute(createChatGroupsSql, m_lastError)) {
         database.rollback();
         return false;
+    }
+
+    //旧版本数据库中的chat_groups表没有is_active字段，CREATE TABLE IF NOT EXISTS不会自动补充新字段
+    //这里先读取现有表结构，再只对旧数据库执行一次ALTER TABLE，避免用户升级程序后必须手动删除数据库
+    bool hasIsActiveColumn = false;
+    QSqlQuery groupColumnsQuery(database);
+
+    if (!groupColumnsQuery.exec(QStringLiteral("PRAGMA table_info(chat_groups)"))) {
+        m_lastError = QStringLiteral("读取群聊表结构失败：") + groupColumnsQuery.lastError().text();
+        database.rollback();
+        return false;
+    }
+
+    while (groupColumnsQuery.next()) {
+        //PRAGMA table_info返回结果的第1列是字段名称
+        if (groupColumnsQuery.value(1).toString() == QStringLiteral("is_active")) {
+            hasIsActiveColumn = true;
+            break;
+        }
+    }
+
+    groupColumnsQuery.finish();
+
+    if (!hasIsActiveColumn) {
+        //旧数据库中的现有群聊全部默认视为正常群聊
+        const QString addIsActiveColumnSql = QStringLiteral(
+            "ALTER TABLE chat_groups ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1))");
+
+        if (!m_databaseCore.execute(addIsActiveColumnSql, m_lastError)) {
+            database.rollback();
+            return false;
+        }
     }
 
     //创建群成员关系表
@@ -323,12 +360,14 @@ bool GroupChatDatabase::createGroup(const QString &groupId, const QString &group
     //创建保存群聊基本信息的查询对象
     QSqlQuery groupQuery(database);
 
-    //重复邀请时更新群名称和创建者
+    //重复邀请时更新群名称、创建者和活动状态
+    //以前退出过同一群ID时，重新收到邀请会重新启用该群聊，同时保留以前的历史消息
     const QString upsertGroupSql = R"(
         INSERT INTO chat_groups(
             group_id,
             group_name,
             creator_id,
+            is_active,
             created_at,
             updated_at
         )
@@ -336,12 +375,15 @@ bool GroupChatDatabase::createGroup(const QString &groupId, const QString &group
             :group_id,
             :group_name,
             :creator_id,
+            1,
             CURRENT_TIMESTAMP,
             CURRENT_TIMESTAMP
         )
         ON CONFLICT(group_id) DO UPDATE SET
             group_name = excluded.group_name,
-            creator_id = excluded.creator_id
+            creator_id = excluded.creator_id,
+            is_active = 1,
+            updated_at = CURRENT_TIMESTAMP
     )";
 
     if (!groupQuery.prepare(upsertGroupSql)) {
@@ -482,6 +524,112 @@ bool GroupChatDatabase::deleteGroup(const QString &groupId)
     return true;
 }
 
+//查询本机是否仍然属于指定群聊
+bool GroupChatDatabase::isGroupActive(const QString &groupId, bool &active)
+{
+    m_lastError.clear();
+
+    active = false;
+
+    QSqlDatabase database = m_databaseCore.database();
+
+    if (!database.isValid() || !database.isOpen()) {
+        m_lastError = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    const QString normalizedGroupId = groupId.trimmed();
+
+    if (!DatabaseCheck::isValidGroupId(normalizedGroupId)) {
+        m_lastError = QStringLiteral("群聊ID必须是十位数字");
+        return false;
+    }
+
+    QSqlQuery query(database);
+
+    const QString sql = R"(
+        SELECT is_active
+        FROM chat_groups
+        WHERE group_id = :group_id
+        LIMIT 1
+    )";
+
+    if (!query.prepare(sql)) {
+        m_lastError = QStringLiteral("准备读取群聊状态SQL失败：") + query.lastError().text();
+        return false;
+    }
+
+    query.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+
+    if (!query.exec()) {
+        m_lastError = QStringLiteral("读取群聊状态失败：") + query.lastError().text();
+        return false;
+    }
+
+    if (!query.next()) {
+        m_lastError = QStringLiteral("群聊不存在");
+        return false;
+    }
+
+    active = query.value(0).toInt() != 0;
+
+    return true;
+}
+
+//将已经退出的群聊标记为非活动状态，只改变状态，不删除群成员和群消息
+bool GroupChatDatabase::markGroupExited(const QString &groupId)
+{
+    m_lastError.clear();
+
+    QSqlDatabase database = m_databaseCore.database();
+
+    if (!database.isValid() || !database.isOpen()) {
+        m_lastError = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    const QString normalizedGroupId = groupId.trimmed();
+
+    if (!DatabaseCheck::isValidGroupId(normalizedGroupId)) {
+        m_lastError = QStringLiteral("群聊ID必须是十位数字");
+        return false;
+    }
+
+    //先确认群聊存在，已经退出的群聊重复执行时直接返回成功，使该操作具有幂等性
+    bool active = false;
+
+    if (!isGroupActive(normalizedGroupId, active)) {
+        return false;
+    }
+
+    if (!active) {
+        return true;
+    }
+
+    QSqlQuery query(database);
+
+    const QString sql = R"(
+        UPDATE chat_groups
+        SET is_active = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE group_id = :group_id
+    )";
+
+    if (!query.prepare(sql)) {
+        m_lastError = QStringLiteral("准备保存退群状态SQL失败：") + query.lastError().text();
+        return false;
+    }
+
+    query.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+
+    if (!query.exec()) {
+        m_lastError = QStringLiteral("保存退群状态失败：") + query.lastError().text();
+        return false;
+    }
+
+    return true;
+}
+
 //读取全部群聊基本信息，返回群聊列表显示需要的数据，不会读取群消息，避免程序启动时加载大量历史记录
 bool GroupChatDatabase::loadGroups(QVariantList &groups)
 {
@@ -503,6 +651,7 @@ bool GroupChatDatabase::loadGroups(QVariantList &groups)
             g.group_id,
             g.group_name,
             g.creator_id,
+            g.is_active,
             g.created_at,
             g.updated_at,
             (
@@ -521,7 +670,6 @@ bool GroupChatDatabase::loadGroups(QVariantList &groups)
                         ORDER BY member_order ASC
                     ) AS ordered_member
                 ),
-
                 ''
             ) AS member_summary
 
@@ -538,7 +686,7 @@ bool GroupChatDatabase::loadGroups(QVariantList &groups)
             )
         )
 
-        ORDER BY g.updated_at DESC, g.created_at DESC, g.group_id ASC
+        ORDER BY g.is_active DESC, g.updated_at DESC, g.created_at DESC, g.group_id ASC
     )";
 
     if (!query.prepare(sql)) {
@@ -555,13 +703,19 @@ bool GroupChatDatabase::loadGroups(QVariantList &groups)
 
     while (query.next()) {
         QVariantMap group;
+
         group.insert(QStringLiteral("groupId"), query.value(0).toString());
         group.insert(QStringLiteral("groupName"), query.value(1).toString());
         group.insert(QStringLiteral("creatorId"), query.value(2).toString());
-        group.insert(QStringLiteral("createdAt"), query.value(3).toString());
-        group.insert(QStringLiteral("updatedAt"), query.value(4).toString());
-        group.insert(QStringLiteral("memberCount"), query.value(5).toInt());
-        group.insert(QStringLiteral("memberSummary"), query.value(6).toString());
+
+        //QML使用该字段判断是否允许发送、退出和彻底删除
+        group.insert(QStringLiteral("isActive"), query.value(3).toInt() != 0);
+
+        group.insert(QStringLiteral("createdAt"), query.value(4).toString());
+        group.insert(QStringLiteral("updatedAt"), query.value(5).toString());
+        group.insert(QStringLiteral("memberCount"), query.value(6).toInt());
+        group.insert(QStringLiteral("memberSummary"), query.value(7).toString());
+
         groups.append(group);
     }
 
@@ -864,11 +1018,17 @@ bool GroupChatDatabase::saveGroupMessage(const QString &groupId,
     //不能让一个不属于该群的peerId向该群的历史记录中写入消息
     QSqlQuery memberQuery(database);
 
+    //保存消息前同时检查群聊活动状态和发送者成员身份
     const QString selectMemberSql = R"(
-        SELECT username FROM group_members
-        WHERE group_id = :group_id AND peer_id = :peer_id
+        SELECT gm.username
+        FROM group_members AS gm
+        INNER JOIN chat_groups AS g ON g.group_id = gm.group_id
+        WHERE gm.group_id = :group_id
+        AND gm.peer_id = :peer_id
+        AND g.is_active = 1
         LIMIT 1
     )";
+
 
     if (!memberQuery.prepare(selectMemberSql)) {
         m_lastError = QStringLiteral("准备检查群成员SQL失败：") + memberQuery.lastError().text();
@@ -886,9 +1046,9 @@ bool GroupChatDatabase::saveGroupMessage(const QString &groupId,
         return false;
     }
 
-    //查询不到记录，可能是群不存在，也可能是发送者不属于该群
+    //查询不到记录，可能是群不存在、群聊已经退出，或者发送者不属于该群
     if (!memberQuery.next()) {
-        m_lastError = QStringLiteral("群聊不存在或消息发送者不是该群成员");
+        m_lastError = QStringLiteral("群聊不存在、已经退出或消息发送者不是该群成员");
         return false;
     }
 
