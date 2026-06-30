@@ -7,7 +7,10 @@
 //         * 新增updateMemberUsername()
 //     [v0.1.2] ZhouChengWei    2026-06-27 18:06:57
 //         * 添加了退群处理函数
-
+//     [v0.1.3] HeZhiyuan    2026-06-29 23:46:55
+//         * 新增：群聊活动状态查询和退群状态保存
+//                退出群聊后保留群成员和群消息记录
+//                分出退出群聊和彻底删除群聊两种数据库操作
 #pragma once
 
 #include <QString>
@@ -32,8 +35,14 @@ public:
     //校验群信息和成员列表，并保存群聊基本信息及全部成员
     bool createGroup(const QString &groupId, const QString &groupName, const QString &creatorId, const QVariantList &members);
 
-    //删除指定群聊；群成员和群消息由外键级联删除
+    //删除指定群聊
     bool deleteGroup(const QString &groupId);
+
+    //将本机已经退出的群聊标记为非活动状态，保留群成员和群消息历史
+    bool markGroupExited(const QString &groupId);
+
+    //查询本机是否仍然属于指定群聊，函数返回值表示查询是否成功，active表示群聊是否仍可收发消息
+    bool isGroupActive(const QString &groupId, bool &active);
 
     //退群
     bool leaveGroup(const QString &groupId, const QString &peerId);

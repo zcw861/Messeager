@@ -41,6 +41,9 @@
 //         * 将普通文件处理与图片文件处理分开，完成 图片文件缓存到data目录再显示到消息列表 的功能
 //     [v0.2.4]  JiangFan     2026-06-29
 //         * 完善图片消息发送与预览功能（用的是本地的Gwenview），修复自己发送给自己图片保存两次的bug
+//     [v0.2.5] HeZhiyuan    2026-06-29 23:50:41
+//         * 修改主动退群，退出后保留本地群聊成员和历史消息
+//         * 新增：已退出群聊的彻底删除处理，并禁止直接删除正常群聊、禁止已经退出的群聊继续发送消息
 
 #include "appcontroller.h"
 
@@ -600,11 +603,16 @@ bool AppController::sendGroupMessage(const QString &groupId, const QString &cont
         return false;
     }
 
-    //把发送任务交给群聊网络层
-    const bool submitted = m_groupChat.sendMsgToGroup(normalizedGroupId.toStdString(), normalizedContent.toStdString());
+    //数据库状态是发送权限的最终依据，已经退出的历史群聊只能查看消息，不能继续发送
+    bool groupActive = false;
 
-    if (!submitted) {
-        reportError(QStringLiteral("群消息发送失败：当前群聊网络会话不存在"));
+    if (!m_groupChatDatabase.isGroupActive(normalizedGroupId, groupActive)) {
+        reportError(QStringLiteral("检查群聊状态失败：") + m_groupChatDatabase.lastError());
+        return false;
+    }
+
+    if (!groupActive) {
+        reportError(QStringLiteral("你已经退出该群聊，无法继续发送消息"));
         return false;
     }
 
@@ -803,7 +811,7 @@ void AppController::restoreGroupSessions()
 {
     //创建用于接收数据库群聊记录的列表
     QVariantList savedGroups;
-        //从GroupChatDatabase读取全部已保存群聊
+    //从GroupChatDatabase读取全部已保存群聊
     if (!m_groupChatDatabase.loadGroups(savedGroups)) {
         reportError(QStringLiteral("恢复群聊时读取群列表失败：") + m_groupChatDatabase.lastError());
 
@@ -827,9 +835,16 @@ void AppController::restoreGroupSessions()
         //读取并规范化当前群聊名称
         const QString groupName = group.value(QStringLiteral("groupName")).toString().trimmed();
 
+        //已经退出的群聊只用于显示历史记录，程序重启后不能重新建立网络会话
+        const bool isActive = group.value(QStringLiteral("isActive")).toBool();
+
         //过滤群ID无效或群名称为空的损坏记录
         if (!DatabaseCheck::isValidGroupId(groupId) || groupName.isEmpty()) {
             //跳过当前异常群聊并继续恢复后续群聊
+            continue;
+        }
+
+        if (!isActive) {
             continue;
         }
 
@@ -1721,18 +1736,60 @@ bool AppController::leaveGroup(const QString &groupId)
         return false;
     }
 
-    //本机已经退出该群，因此本地不再需要保存整个群聊
-    if (!m_groupChatDatabase.deleteGroup(normalizedGroupId)) {
-        reportError(QStringLiteral("删除本地群聊失败：") + m_groupChatDatabase.lastError());
+    //网络退群成功后只把本地群聊标记为已退出，不删除群成员和群消息
+    //这样用户仍然可以重新打开该群聊查看以前的聊天记录
+    if (!m_groupChatDatabase.markGroupExited(normalizedGroupId)) {
+        reportError(QStringLiteral("保存退群状态失败：") + m_groupChatDatabase.lastError());
         return false;
     }
 
-    //清除AppController保存的当前群聊成员和消息
+    refreshGroups();
+
+    return true;
+}
+
+//群聊必须先退出才能彻底删除已经退出的群聊
+bool AppController::deleteExitedGroup(const QString &groupId)
+{
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化"));
+        return false;
+    }
+
+    const QString normalizedGroupId = groupId.trimmed();
+
+    if (!DatabaseCheck::isValidGroupId(normalizedGroupId)) {
+        reportError(QStringLiteral("删除群聊失败：群聊ID必须是十位数字"));
+        return false;
+    }
+
+    bool groupActive = false;
+
+    if (!m_groupChatDatabase.isGroupActive(normalizedGroupId, groupActive)) {
+        reportError(QStringLiteral("删除群聊失败：") + m_groupChatDatabase.lastError());
+        return false;
+    }
+
+    if (groupActive) {
+        reportError(QStringLiteral("当前仍在群聊中，退出群聊后才能彻底删除"));
+        return false;
+    }
+
+    //删除chat_groups记录，群成员和群消息由外键级联删除
+    if (!m_groupChatDatabase.deleteGroup(normalizedGroupId)) {
+        reportError(QStringLiteral("彻底删除群聊失败：") + m_groupChatDatabase.lastError());
+        return false;
+    }
+
+    //删除的是当前正在查看的历史群聊时，同时清理控制器中的群聊缓存
     if (m_currentGroupId == normalizedGroupId) {
         clearGroupConversation();
     }
 
     refreshGroups();
+
+    //清理群聊名称、状态和左侧选中效果
+    emit groupDeleted(normalizedGroupId);
 
     return true;
 }

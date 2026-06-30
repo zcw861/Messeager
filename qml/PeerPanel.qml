@@ -59,6 +59,10 @@
 *   完善群聊卡片边框与用户统一，增加点击、悬停时的颜色变化
 * *[v0.3.2] HeZhiyuan 2026-06-28
 *   修改在暗色模式下创建群聊以及加好友卡片的显示问题
+* *[v0.3.3] HeZhiyuan 2026-06-29
+*   新增：已退出群聊的右键删除功能
+*        未退出群聊点击删除时的提示弹窗，引导用户先退出群聊
+*        群聊删除确认弹窗，防止误删群聊及历史消息
 */
 
 import QtQuick
@@ -103,9 +107,12 @@ Rectangle {
     //真实群聊模型来自appController.groups
     property var groupModel: []
 
-    //选择群聊时只传稳定的群ID和群名称
+    //选择群聊时传递稳定的群ID、群名称和当前活动状态
     //成员由AppController根据groupId从数据库读取
-    signal groupSelected(string groupId,string groupName)
+    signal groupSelected(string groupId, string groupName, bool groupActive)
+
+    //用户确认彻底删除已退出群聊后，调用AppController
+    signal groupDeleteRequested(string groupId)
 
     //再次点击当前群聊时关闭群会话
     signal groupClosed()
@@ -113,6 +120,11 @@ Rectangle {
     //当前右键选中的待删除用户。
     property string pendingDeletePeerId: ""
     property string pendingDeletePeerName: ""
+
+    //保存当前右键点击的群聊信息，供群聊菜单和删除确认窗口使用
+    property string pendingDeleteGroupId: ""
+    property string pendingDeleteGroupName: ""
+    property bool pendingDeleteGroupActive: true
 
     //判断两个显示字段中是否包含当前搜索关键字
     function matchSearch(firstText, secondText) {
@@ -135,8 +147,8 @@ Rectangle {
         //创建失败时不切换会话
         if (!success)
             return
-        //通知Window.qml打开新创建的群聊
-        peerPanel.groupSelected(groupId, groupName)
+        //新建群聊一定处于活动状态
+        peerPanel.groupSelected(groupId, groupName, true)
     }
     ColumnLayout {
         id: peerLayout
@@ -318,6 +330,7 @@ Rectangle {
                 readonly property string groupName: String(modelData.groupName)
                 readonly property int memberCount: Number(modelData.memberCount)
                 readonly property string memberSummary: String(modelData.memberSummary)
+                readonly property bool isActive: Boolean(modelData.isActive)
                 readonly property bool matched: peerPanel.matchSearch(groupName, memberSummary)
 
                 //判断当前群聊是否处于选中状态
@@ -415,16 +428,33 @@ Rectangle {
 
                         //再次点击当前群聊时关闭会话
                         if (peerPanel.currentGroupId === groupDelegate.groupId) {
-                            peerPanel.currentGroupId = ""
                             peerPanel.groupClosed()
                             return
                         }
 
-                        //将当前群聊ID保存到PeerPanel
-                        peerPanel.currentGroupId = groupDelegate.groupId
+                        //只发送选择信号，currentGroupId由Window.qml统一维护
+                        peerPanel.groupSelected(groupDelegate.groupId, groupDelegate.groupName, groupDelegate.isActive)
+                    }
+                }
+                //打开群聊操作菜单
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
 
-                        //通知Window.qml打开选中的群聊
-                        peerPanel.groupSelected(groupDelegate.groupId, groupDelegate.groupName)
+                    onTapped: function(eventPoint, button) {
+                        peerPanel.clearSearchFocus()
+
+                        //记录右键点击的群聊，MenuItem根据isActive决定是否允许彻底删除
+                        peerPanel.pendingDeleteGroupId = groupDelegate.groupId
+                        peerPanel.pendingDeleteGroupName = groupDelegate.groupName
+                        peerPanel.pendingDeleteGroupActive = groupDelegate.isActive
+
+                        //把群聊卡片内的点击坐标转换为PeerPanel坐标，保证菜单出现在右键位置附近
+                        const menuPosition = groupDelegate.mapToItem(peerPanel, eventPoint.position.x, eventPoint.position.y)
+
+                        groupContextMenu.x = menuPosition.x
+                        groupContextMenu.y = menuPosition.y
+                        groupContextMenu.open()
                     }
                 }
             }
@@ -639,15 +669,85 @@ Rectangle {
 
         width: 130
 
+        background: Rectangle {
+            implicitWidth: 100
+            color: "#FFFFFF"
+            radius: 6
+            border.color: "#D9D9D9"
+            border.width: 1
+        }
+
         MenuItem {
+            id: deleteUserMenuItem
             text: qsTr("删除用户")
 
+            contentItem: Text {
+                text: deleteUserMenuItem.text
+                color: "#333333"
+                font: deleteUserMenuItem.font
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
             onTriggered: {
                 deletePeerDialog.open()
             }
         }
     }
 
+    //群聊列表右键菜单
+    Menu {
+        id: groupContextMenu
+
+        width: 180
+
+        //显式设置菜单背景，避免暗色模式下继承系统深色背景
+        //这里与用户右键菜单保持相同的浅色界面风格
+        background: Rectangle {
+            implicitWidth: 180
+            color: "#FFFFFF"
+            radius: 6
+            border.color: "#D9D9D9"
+            border.width: 1
+        }
+
+        MenuItem {
+            id: deleteGroupMenuItem
+
+            text: qsTr("删除群聊")
+
+            //正常群聊触发提示窗口，已退出群聊触发删除确认窗口
+            enabled: peerPanel.pendingDeleteGroupId.length > 0
+
+            //显式设置文字颜色，避免受到系统暗色模式影响
+            contentItem: Text {
+                text: deleteGroupMenuItem.text
+                color: deleteGroupMenuItem.enabled ? "#333333" : "#A0A0A0"
+                font: deleteGroupMenuItem.font
+                leftPadding: 12
+                rightPadding: 12
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+
+            //显式设置菜单项悬停背景，保持与用户右键菜单一致
+            background: Rectangle {
+                color: deleteGroupMenuItem.highlighted && deleteGroupMenuItem.enabled
+                       ? "#F2F3F5" : "transparent"
+            }
+
+            //根据群聊活动状态决定打开提示窗口还是删除确认窗口
+            onTriggered: {
+                //正常群聊不能直接删除，打开提示用户先退出群聊的窗口
+                if (peerPanel.pendingDeleteGroupActive) {
+                    activeGroupDeleteWarningDialog.open()
+                    return
+                }
+
+                //已经退出的群聊可以进入彻底删除确认流程
+                deleteGroupDialog.open()
+            }
+        }
+    }
     InviteUserInterface {
         id: inviteUserInterface
 
@@ -673,8 +773,7 @@ Rectangle {
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         contentItem: Text {
-            text: qsTr("确定要删除用户“%1”吗?\n聊天记录也会清除")
-                  .arg(peerPanel.pendingDeletePeerName)
+            text: qsTr("确定要删除用户“%1”吗?\n聊天记录也会清除").arg(peerPanel.pendingDeletePeerName)
 
             wrapMode: Text.Wrap
             color: "#333333"
@@ -682,11 +781,9 @@ Rectangle {
         }
 
         onOpened: {
-            const deleteButton =
-                    deletePeerDialog.standardButton(Dialog.Ok)
+            const deleteButton = deletePeerDialog.standardButton(Dialog.Ok)
 
-            const cancelButton =
-                    deletePeerDialog.standardButton(Dialog.Cancel)
+            const cancelButton = deletePeerDialog.standardButton(Dialog.Cancel)
 
             if (deleteButton)
                 deleteButton.text = qsTr("删除")
@@ -707,6 +804,376 @@ Rectangle {
         onClosed: {
             peerPanel.pendingDeletePeerId = ""
             peerPanel.pendingDeletePeerName = ""
+        }
+    }
+
+    //正常群聊点击删除时显示提示窗口
+    //该窗口只负责提示用户先退出群聊，不会发出群聊删除请求
+    Dialog {
+        id: activeGroupDeleteWarningDialog
+
+        parent: Overlay.overlay
+
+        //弹窗显示时阻止用户操作后面的主窗口
+        modal: true
+
+        //让弹窗能够接收键盘焦点
+        focus: true
+        closePolicy: Popup.NoAutoClose
+
+        width: 380
+        height: 200
+
+        //将弹窗放置在主窗口中央
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+
+        //取消Dialog默认边距，内部内容统一使用Layout管理
+        padding: 0
+
+        //弹窗打开后将活动焦点交给确定按钮
+        onOpened: {
+            activeGroupDeleteWarningConfirmButton.forceActiveFocus()
+        }
+
+        //增加半透明背景遮罩，使提示状态更加清晰
+        Overlay.modal: Rectangle {
+            color: "#80000000"
+        }
+
+        //显式设置浅色弹窗背景，避免暗色模式改变弹窗颜色
+        background: Rectangle {
+            radius: 10
+            color: "#FFFFFF"
+            border.width: 1
+            border.color: "#DCDCDC"
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            //弹窗标题区域
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 48
+
+                color: "#F5F5F5"
+                radius: 10
+
+                Text {
+                    width: parent.width
+                    height: parent.height
+                    leftPadding: 18
+
+                    text: qsTr("无法删除群聊")
+                    color: "#222222"
+                    font.pixelSize: 16
+                    font.bold: true
+
+                    horizontalAlignment: Text.AlignLeft
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            //弹窗提示内容
+            Text {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                Layout.topMargin: 16
+                Layout.bottomMargin: 12
+
+                text: qsTr("群聊“%1”尚未退出，无法删除。\n请先退出群聊，再删除群聊。")
+                      .arg(peerPanel.pendingDeleteGroupName)
+
+                color: "#333333"
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            //弹窗底部按钮区域
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 54
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+                Layout.bottomMargin: 8
+
+                //使用弹性占位项将确定按钮放到右侧
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                Rectangle {
+                    id: activeGroupDeleteWarningConfirmButton
+
+                    Layout.preferredWidth: 70
+                    Layout.preferredHeight: 30
+
+                    //允许按钮获得键盘焦点
+                    activeFocusOnTab: true
+
+                    radius: 8
+                    color: activeGroupDeleteWarningConfirmHover.hovered ? "#168FE5" : "#029AFF"
+
+                    Text {
+                        width: parent.width
+                        height: parent.height
+
+                        text: qsTr("确定")
+                        color: "#FFFFFF"
+                        font.pixelSize: 13
+
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    HoverHandler {
+                        id: activeGroupDeleteWarningConfirmHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                        //点击确定后只关闭提示窗口，不执行删除
+                        onTapped: {
+                            activeGroupDeleteWarningDialog.close()
+                        }
+                    }
+
+                    //按钮获得焦点后，回车关闭窗口
+                    Keys.onPressed: function(event) {
+                        if (event.key === Qt.Key_Return) {
+                            activeGroupDeleteWarningDialog.close()
+                            event.accepted = true
+                        }
+                    }
+                }
+            }
+        }
+
+        //提示窗口关闭后清除右键操作保存的临时群聊信息
+        onClosed: {
+            peerPanel.pendingDeleteGroupId = ""
+            peerPanel.pendingDeleteGroupName = ""
+            peerPanel.pendingDeleteGroupActive = true
+        }
+    }
+
+    Dialog {
+        id: deleteGroupDialog
+
+        parent: Overlay.overlay
+
+        //弹窗显示时阻止用户继续操作后面的主窗口
+        modal: true
+
+        //让弹窗可以接收键盘焦点
+        focus: true
+
+        width: 380
+        height: 210
+
+        //将弹窗放置在主窗口中央
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+
+        //取消Dialog默认内容边距，由内部ColumnLayout统一管理
+        padding: 0
+
+        //弹窗打开后等待Dialog完成焦点切换，再把活动焦点交给删除按钮
+        onOpened: {
+            Qt.callLater(function() {
+                deleteGroupConfirmButton.forceActiveFocus()
+            })
+        }
+
+        //统一处理鼠标点击删除和键盘回车删除
+        function confirmDeleteGroup() {
+            //没有有效群聊ID时不执行删除
+            if (peerPanel.pendingDeleteGroupId.length === 0)
+                return
+
+            //正常群聊必须先退出，不能直接彻底删除
+            if (peerPanel.pendingDeleteGroupActive)
+                return
+
+            //进入Dialog的accepted流程，由onAccepted发送删除请求
+            deleteGroupDialog.accept()
+        }
+
+        //设置弹窗外部半透明遮罩，使删除确认状态更加明显
+        Overlay.modal: Rectangle {
+            color: "#80000000"
+        }
+
+        background: Rectangle {
+            radius: 10
+            color: "#FFFFFF"
+            border.color: "#DCDCDC"
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            //弹窗标题区域
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 48
+
+                color: "#F5F5F5"
+                radius: 10
+
+                Text {
+                    width: parent.width
+                    height: parent.height
+                    leftPadding: 18
+
+                    text: qsTr("删除群聊")
+                    color: "#222222"
+                    font.pixelSize: 16
+                    font.bold: true
+
+                    horizontalAlignment: Text.AlignLeft
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            //弹窗提示内容
+            Text {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                Layout.topMargin: 16
+                Layout.bottomMargin: 12
+
+                text: qsTr("确定要删除群聊“%1”吗？\n群成员和聊天记录都会彻底清除")
+                      .arg(peerPanel.pendingDeleteGroupName)
+
+                color: "#333333"
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            //弹窗底部按钮区域
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 58
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+                Layout.bottomMargin: 8
+
+                spacing: 10
+
+                //使用弹性占位项将操作按钮放置在右侧
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                //取消按钮
+                Rectangle {
+                    id: deleteGroupCancelButton
+
+                    Layout.preferredWidth: 76
+                    Layout.preferredHeight: 32
+
+                    radius: 8
+                    color: deleteGroupCancelHover.hovered ? "#EEEEEE" : "#F8F8F8"
+                    border.color: "#C2C2C2"
+                    border.width: 1
+
+                    Text {
+                        width: parent.width
+                        height: parent.height
+
+                        text: qsTr("取消")
+                        color: "#333333"
+                        font.pixelSize: 14
+
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    HoverHandler {
+                        id: deleteGroupCancelHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                        onTapped: deleteGroupDialog.reject()
+                    }
+                }
+
+                //删除按钮
+                Rectangle {
+                    id: deleteGroupConfirmButton
+
+                    Layout.preferredWidth: 76
+                    Layout.preferredHeight: 32
+
+                    //通过Tab键获得焦点
+                    activeFocusOnTab: true
+
+                    radius: 8
+                    color: deleteGroupConfirmHover.hovered ? "#C92F2F" : "#E13B3B"
+
+                    Text {
+                        width: parent.width
+                        height: parent.height
+
+                        text: qsTr("删除")
+                        color: "#FFFFFF"
+                        font.pixelSize: 14
+
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    HoverHandler {
+                        id: deleteGroupConfirmHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                        onTapped: deleteGroupDialog.confirmDeleteGroup()
+                    }
+
+                    //按钮获得活动焦点后，Enter确认删除
+                    Keys.onPressed: function(event) {
+                        if (event.key === Qt.Key_Return) {
+                            event.accepted = true
+                            deleteGroupDialog.confirmDeleteGroup()
+                        }
+                    }
+                }
+            }
+        }
+
+        //弹窗确认关闭后，将删除请求发送给Window.qml
+        onAccepted: {
+            peerPanel.groupDeleteRequested(
+                peerPanel.pendingDeleteGroupId
+            )
+        }
+
+        //弹窗关闭后清除临时保存的群聊信息
+        onClosed: {
+            peerPanel.pendingDeleteGroupId = ""
+            peerPanel.pendingDeleteGroupName = ""
+            peerPanel.pendingDeleteGroupActive = true
         }
     }
 
