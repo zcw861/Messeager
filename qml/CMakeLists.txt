@@ -23,7 +23,7 @@ qt_add_qml_module(appMessager
     VERSION 1.0
     SOURCES
         main.cpp
-        appcontroller.h appcontroller.
+        appcontroller.h appcontroller.cpp
 
     QML_FILES
         PeerPanel.qml

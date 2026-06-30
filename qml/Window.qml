@@ -61,6 +61,7 @@
 //           退出群聊后隐藏消息输入框
 //     [v0.3.2] JiangFan    2026-06-30
 //         * 将用户列表做成单独文件，成为可以复用的控件，并在群聊详情界面复用
+//         * 修复：详情界面按钮点击收缩时无法收缩的bug（收缩一点后又展开）
 
 import QtQuick
 import QtQuick.Controls
@@ -1316,13 +1317,7 @@ ApplicationWindow {
                 }
             }
         }
-
-        //群聊用户右侧用户列表左拉伸
-        Rectangle {
-
-        }
     }
-
 
     //群聊详情界面的展开
     Drawer {
@@ -1332,10 +1327,30 @@ ApplicationWindow {
         y: 90
         width: 280
         height: parent.height - y
-        modal: false
+        modal: true //Drawer打开时启用一个modal overlay(为了修复再次点击按钮不收缩的情况：因为按钮在外侧，点击按钮会触发两次收缩，导致点击按钮无法收缩)
 
-        //点击外部区域关闭
-        closePolicy: Popup.CloseOnPressOutside
+        //点击外部区域关闭, 增加允许Esc关闭
+        closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
+
+        enter: Transition {
+            NumberAnimation {
+                property: "position"
+                from: 0
+                to: 1
+                duration: 150
+                easing.type: Easing.OutCubic
+            }
+        }
+
+        exit: Transition {
+            NumberAnimation {
+                property: "position"
+                from: 1
+                to: 0
+                duration: 150
+                easing.type: Easing.OutCubic
+            }
+        }
 
         background: Rectangle {
             color: "#FFFFFF"
@@ -1431,6 +1446,9 @@ ApplicationWindow {
 
     //打开群聊详情界面的函数
     function openGroupDrawer() {
+        if (!root.currentIsGroup || root.currentGroupId.length === 0)
+            return
+
         if (groupDetailDrawer.opened) {
             groupDetailDrawer.close()
         } else {
