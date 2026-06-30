@@ -23,7 +23,8 @@ qt_add_qml_module(appMessager
     VERSION 1.0
     SOURCES
         main.cpp
-        appcontroller.h appcontroller.cpp
+        appcontroller.h appcontroller.
+
     QML_FILES
         PeerPanel.qml
         ChatPanel.qml
@@ -31,6 +32,8 @@ qt_add_qml_module(appMessager
         InputPanel.qml
         InviteUserInterface.qml
         Login.qml
+        GroupMemberListView.qml
+
     RESOURCES
         ../source/file.svg
         ../source/close.svg
