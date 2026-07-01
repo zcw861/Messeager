@@ -16,7 +16,9 @@
 //     [v0.1.6] HeZhiyuan    2026-06-29 23:49:41
 //         * 群聊列表增加isActive状态
 //           新增：删除已退出群聊的QML调用接口
-
+//     [v0.1.7] HeZhiyuan    2026-07-02 00:53:08
+//         * 新增groupActivityChanged()，更新当前群聊活动状态
+//           修改群成员退出和群聊解散处理，解散后继续保留本地历史记录
 #pragma once
 
 #include <QObject>
@@ -168,6 +170,7 @@ signals:
     void readyChanged();    //控制器初始化状态发生变化时发出
     void peerDeleted(const QString &peerId);    //删除成功后通知QML清理选中状态
     void groupDeleted(const QString &groupId);      //彻底删除群聊成功后清理当前群聊状态
+    void groupActivityChanged(const QString &groupId, bool active);    //群聊退出或解散后通知QML更新状态
     void operationFailed(const QString &message);   //业务操作失败时发出
 
     void fileRequestReceived(const QString &fromfp, const QString &fileName, qint64 fileSize); //收到对方文件发送请求

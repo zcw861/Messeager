@@ -62,7 +62,9 @@
 //     [v0.3.2] JiangFan    2026-06-30
 //         * 将用户列表做成单独文件，成为可以复用的控件，并在群聊详情界面复用
 //         * 修复：详情界面按钮点击收缩时无法收缩的bug（收缩一点后又展开）
-
+//     [v0.3.3] HeZhiyuan    2026-07-02 00:55:32
+//         * 接收群聊状态变化，退群或解散后保留当前历史消息并切换为只读状态
+//           解散群聊会隐藏退出按钮，同时关闭群聊详情界面并清空消息输入框
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -147,6 +149,19 @@ ApplicationWindow {
 
             root.closeGroupChat()
             groupDetailDrawer.close()
+        }
+
+        //群聊退出或解散后仍保留历史记录，只把当前会话切换为只读状态
+        onGroupActivityChanged: function(groupId, active) {
+            if (root.currentGroupId !== groupId)
+                return
+
+            root.currentGroupActive = active
+
+            if (!active) {
+                inputPanel.clear()
+                groupDetailDrawer.close()
+            }
         }
 
         //收到对方文件发送请求
@@ -923,7 +938,7 @@ ApplicationWindow {
                                 width: parent.width
                                 height: parent.height
 
-                                text: qsTr("你已退出该群聊，只能查看历史消息")
+                                text: qsTr("该群聊已退出或解散，只能查看历史消息")
                                 color: "#6B7280"
                                 font.pixelSize: 14
 
@@ -1420,6 +1435,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
+                visible: root.currentGroupActive
                 radius: 5
                 color: leaveGroupButtonHovered.hovered ? "#e17a7a" : "#e13b3b"
 
