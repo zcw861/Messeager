@@ -1133,7 +1133,7 @@ ApplicationWindow {
 
             text: root.pendingFileName
                 + "\n大小：" + root.fileSizeJudgement(root.pendingFileSize)
-                + "\n来自：" + root.pendingFileIp
+                + "\n来自：" + root.currentPeerName + "(" + root.pendingFileIp + ")";
             font.pixelSize: 15
             color: "#4E5969"
             wrapMode: Text.Wrap
