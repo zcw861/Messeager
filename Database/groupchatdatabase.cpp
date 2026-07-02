@@ -15,7 +15,8 @@
 //     [v0.1.5] HeZhiyuan    2026-06-29 23:48:24
 //         * 在群聊表增加is_active，兼容旧版本数据库表结构
 //           修改主动退群处理，禁止向已经退出的群聊继续保存新消息
-
+//     [v0.1.6] HeZhiyuan    2026-07-02 00:50:25
+//         * 修改leaveGroup()事务处理，三人群有成员退出后将群聊标记为非活动状态，不删除chat_groups记录
 #include "groupchatdatabase.h"
 
 #include "databasecore.h"
@@ -1176,79 +1177,125 @@ bool GroupChatDatabase::leaveGroup(const QString &groupId,const QString &peerId)
         return false;
     }
 
-    //成员删除、人数统计和自动解散必须属于同一个事务,避免成员已经删除但群聊没有正确解散的状态
+    //成员检查、成员删除和自动解散状态更新属于同一个事务
     if (!database.transaction()) {
         m_lastError = database.lastError().text();
         return false;
     }
 
-    QSqlQuery deleteMemberQuery(database);
+    //先读取退群前的成员数量，并确认退群成员确实属于该群
+    //先统计再决定是否删除成员，三人群解散后要保留原始成员列表作为历史信息
+    QSqlQuery memberStateQuery(database);
 
-    const QString deleteMemberSql = R"(
-        DELETE FROM group_members
-        WHERE group_id = :group_id
-        AND peer_id = :peer_id
-    )";
-
-    if (!deleteMemberQuery.prepare(deleteMemberSql)) {
-        m_lastError = QStringLiteral("准备删除群成员SQL失败：") + deleteMemberQuery.lastError().text();
-        database.rollback();
-        return false;
-    }
-
-    deleteMemberQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
-    deleteMemberQuery.bindValue(QStringLiteral(":peer_id"), normalizedPeerId);
-
-    if (!deleteMemberQuery.exec()) {
-        m_lastError = QStringLiteral("删除群成员失败：") + deleteMemberQuery.lastError().text();
-        database.rollback();
-        return false;
-    }
-
-    //重新统计删除成员后的实际群成员数量
-    QSqlQuery countQuery(database);
-
-    const QString countSql = R"(
-        SELECT COUNT(*)
+    const QString memberStateSql = R"(
+        SELECT
+            COUNT(*) AS member_count,
+            SUM(CASE WHEN peer_id = :peer_id THEN 1 ELSE 0 END) AS leaving_member_count
         FROM group_members
         WHERE group_id = :group_id
     )";
 
-    if (!countQuery.prepare(countSql)) {
-        m_lastError = QStringLiteral("准备统计群成员SQL失败：") + countQuery.lastError().text();
+    if (!memberStateQuery.prepare(memberStateSql)) {
+        m_lastError = QStringLiteral("准备读取退群成员状态SQL失败：") + memberStateQuery.lastError().text();
         database.rollback();
         return false;
     }
 
-    countQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+    memberStateQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+    memberStateQuery.bindValue(QStringLiteral(":peer_id"), normalizedPeerId);
 
-    if (!countQuery.exec() || !countQuery.next()) {
-        m_lastError = QStringLiteral("统计群成员失败：") + countQuery.lastError().text();
+    if (!memberStateQuery.exec() || !memberStateQuery.next()) {
+        m_lastError = QStringLiteral("读取退群成员状态失败：") + memberStateQuery.lastError().text();
         database.rollback();
         return false;
     }
 
-    int removeMemberCount = countQuery.value(0).toInt();
+    const int memberCount = memberStateQuery.value(0).toInt();
+    const int leavingMemberCount = memberStateQuery.value(1).toInt();
 
-    //群聊成员不足三人时删除chat_groups
-    if (removeMemberCount < 3) {
-        QSqlQuery deleteGroupQuery(database);
+    //在同一个事务中执行UPDATE或DELETE，先结束当前查询，避免SQLite连接继续读语句
+    memberStateQuery.finish();
 
-        const QString deleteGroupSql = R"(
-            DELETE FROM chat_groups
+    if (memberCount <= 0) {
+        m_lastError = QStringLiteral("群聊不存在或没有群成员");
+        database.rollback();
+        return false;
+    }
+
+    if (leavingMemberCount <= 0) {
+        m_lastError = QStringLiteral("退群成员不属于该群聊");
+        database.rollback();
+        return false;
+    }
+
+    //三人群中任意成员退出后把群聊标记为非活动状态
+    //不删除任何group_members记录，使剩余用户仍能看到解散前的完整成员列表和历史消息
+    if (memberCount <= 3) {
+        QSqlQuery deactivateGroupQuery(database);
+
+        const QString deactivateGroupSql = R"(
+            UPDATE chat_groups
+            SET is_active = 0,
+                updated_at = CURRENT_TIMESTAMP
             WHERE group_id = :group_id
         )";
 
-        if (!deleteGroupQuery.prepare(deleteGroupSql)) {
-            m_lastError = QStringLiteral("准备自动解散群聊SQL失败：") + deleteGroupQuery.lastError().text();
+        if (!deactivateGroupQuery.prepare(deactivateGroupSql)) {
+            m_lastError = QStringLiteral("准备保存群聊自动解散状态SQL失败：") + deactivateGroupQuery.lastError().text();
             database.rollback();
             return false;
         }
 
-        deleteGroupQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+        deactivateGroupQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
 
-        if (!deleteGroupQuery.exec()) {
-            m_lastError = QStringLiteral("自动解散群聊失败：") + deleteGroupQuery.lastError().text();
+        if (!deactivateGroupQuery.exec()) {
+            m_lastError = QStringLiteral("保存群聊自动解散状态失败：") + deactivateGroupQuery.lastError().text();
+            database.rollback();
+            return false;
+        }
+    } else {
+        //退群后仍有至少三名成员时，只删除退出成员，群聊继续保持活动状态
+        QSqlQuery deleteMemberQuery(database);
+
+        const QString deleteMemberSql = R"(
+            DELETE FROM group_members
+            WHERE group_id = :group_id
+            AND peer_id = :peer_id
+        )";
+
+        if (!deleteMemberQuery.prepare(deleteMemberSql)) {
+            m_lastError = QStringLiteral("准备删除群成员SQL失败：") + deleteMemberQuery.lastError().text();
+            database.rollback();
+            return false;
+        }
+
+        deleteMemberQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+        deleteMemberQuery.bindValue(QStringLiteral(":peer_id"), normalizedPeerId);
+
+        if (!deleteMemberQuery.exec()) {
+            m_lastError = QStringLiteral("删除群成员失败：") + deleteMemberQuery.lastError().text();
+            database.rollback();
+            return false;
+        }
+
+        QSqlQuery updateGroupQuery(database);
+
+        const QString updateGroupSql = R"(
+            UPDATE chat_groups
+            SET updated_at = CURRENT_TIMESTAMP
+            WHERE group_id = :group_id
+        )";
+
+        if (!updateGroupQuery.prepare(updateGroupSql)) {
+            m_lastError = QStringLiteral("准备更新群聊活动时间SQL失败：") + updateGroupQuery.lastError().text();
+            database.rollback();
+            return false;
+        }
+
+        updateGroupQuery.bindValue(QStringLiteral(":group_id"), normalizedGroupId);
+
+        if (!updateGroupQuery.exec()) {
+            m_lastError = QStringLiteral("更新群聊活动时间失败：") + updateGroupQuery.lastError().text();
             database.rollback();
             return false;
         }

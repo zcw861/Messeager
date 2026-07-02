@@ -44,9 +44,15 @@
 //     [v0.2.5] HeZhiyuan    2026-06-29 23:50:41
 //         * 修改主动退群，退出后保留本地群聊成员和历史消息
 //         * 新增：已退出群聊的彻底删除处理，并禁止直接删除正常群聊、禁止已经退出的群聊继续发送消息
+<<<<<<< HEAD
 //     [v0.2.6]  JiangFan     2026-06-29
 //         * 完成保存文件逻辑：图片缓存位置从运行目录/data改成/data/cache,下载文件默认保存在/data/download,且自己给自己发送文件默认保存在download
 
+=======
+//     [v0.2.6] HeZhiyuan    2026-07-02 00:53:52
+//         * 修复sendGroupMessage()因为未调用网络层导致群聊消息无法发送的问题
+//           因群成员退出或群聊解散后导致群聊少于三人时更新解散状态，保留群成员和消息历史
+>>>>>>> 4c34a4ba0b04faea4c11f9a2bd0919b355840023
 #include "appcontroller.h"
 
 #include <QVariantMap>
@@ -615,6 +621,13 @@ bool AppController::sendGroupMessage(const QString &groupId, const QString &cont
 
     if (!groupActive) {
         reportError(QStringLiteral("你已经退出该群聊，无法继续发送消息"));
+        return false;
+    }
+
+    //把群消息交给网络层发送
+    //GroupChat把消息通过groupMessageReceived保存，避免发送和接收各保存一次造成重复消息
+    if (!m_groupChat.sendMsgToGroup(normalizedGroupId.toStdString(), normalizedContent.toStdString())) {
+        reportError(QStringLiteral("发送群消息失败：当前群聊网络会话不存在"));
         return false;
     }
 
@@ -1780,6 +1793,9 @@ bool AppController::leaveGroup(const QString &groupId)
 
     refreshGroups();
 
+    //当前界面该群聊已经变更状态，变为解散状态
+    emit groupActivityChanged(normalizedGroupId, false);
+
     return true;
 }
 
@@ -1849,17 +1865,16 @@ bool AppController::dismissGroup(const QString &groupId)
         return false;
     }
 
-    //网络通知成功后删除本机数据库群聊。
-    if (!m_groupChatDatabase.deleteGroup(normalizedGroupId)) {
-        reportError(QStringLiteral("解散群聊失败：") + m_groupChatDatabase.lastError());
+    //网络通知成功后只把本机群聊标记为解散状态，保留群成员和群消息历史
+    if (!m_groupChatDatabase.markGroupExited(normalizedGroupId)) {
+        reportError(QStringLiteral("保存群聊解散状态失败：") + m_groupChatDatabase.lastError());
         return false;
     }
 
-    if (m_currentGroupId == normalizedGroupId) {
-        clearGroupConversation();
-    }
-
     refreshGroups();
+
+    //通知QML隐藏输入框并继续显示历史消息
+    emit groupActivityChanged(normalizedGroupId, false);
 
     return true;
 }
@@ -1874,31 +1889,29 @@ void AppController::handleGroupMemberLeft(const QString &groupId, const QString 
         return;
     }
 
-    //删除退出成员,数据库层会在剩余成员不足三人时自动删除整个群聊。
+    //同步退群成员；三人群自动解散时数据库会保留完整成员和历史消息，人数仍满足要求时才删除退出成员
     if (!m_groupChatDatabase.leaveGroup(normalizedGroupId, normalizedMemberId)) {
         reportError(QStringLiteral("同步退群成员失败：") + m_groupChatDatabase.lastError());
         return;
     }
 
-    //检查数据库层是否已经因为成员不足三人而删除群聊
-    bool exist = false;
+    //读取退群后的活动状态，成员不足三人时该值会变为false
+    bool groupActive = false;
 
-    if (!m_groupChatDatabase.groupExists(normalizedGroupId, exist)) {
+    if (!m_groupChatDatabase.isGroupActive(normalizedGroupId, groupActive)) {
         reportError(QStringLiteral("检查退群后的群聊状态失败：") + m_groupChatDatabase.lastError());
         return;
     }
 
     if (m_currentGroupId == normalizedGroupId) {
-        if (exist) {
-            //群聊仍然存在时，只刷新当前成员列表
-            refreshGroupMembers();
-        } else {
-            //群聊不足三人并被删除时，清空当前群聊
-            clearGroupConversation();
-        }
+        //群聊自动解散后仍然保留当前历史消息，只重新读取成员列表
+        refreshGroupMembers();
     }
 
     refreshGroups();
+
+    //成员仍不少于三人时保持活动状态，三人群退群后切换为只读历史状态
+    emit groupActivityChanged(normalizedGroupId, groupActive);
 }
 
 void AppController::handleGroupDismissed(const QString &groupId)
@@ -1910,15 +1923,14 @@ void AppController::handleGroupDismissed(const QString &groupId)
         return;
     }
 
-    if (!m_groupChatDatabase.deleteGroup(normalizedGroupId)) {
-        reportError(QStringLiteral("同步群聊解散失败：") + m_groupChatDatabase.lastError());
+    //收到解散通知后保存解散状态，不删除本地群聊、成员和历史消息
+    if (!m_groupChatDatabase.markGroupExited(normalizedGroupId)) {
+        reportError(QStringLiteral("同步群聊解散状态失败：") + m_groupChatDatabase.lastError());
         return;
     }
 
-    //当前正在查看被解散群聊时立即清空聊天界面数据
-    if (m_currentGroupId == normalizedGroupId) {
-        clearGroupConversation();
-    }
-
     refreshGroups();
+
+    //通知QML继续显示历史消息，隐藏输入框并禁止继续发送
+    emit groupActivityChanged(normalizedGroupId, false);
 }

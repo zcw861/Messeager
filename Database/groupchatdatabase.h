@@ -38,7 +38,7 @@ public:
     //删除指定群聊
     bool deleteGroup(const QString &groupId);
 
-    //将本机已经退出的群聊标记为非活动状态，保留群成员和群消息历史
+    //将本机已经退出或解散的群聊标记为非活动状态，保留群成员和群消息历史
     bool markGroupExited(const QString &groupId);
 
     //查询本机是否仍然属于指定群聊，函数返回值表示查询是否成功，active表示群聊是否仍可收发消息
