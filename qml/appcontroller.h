@@ -119,6 +119,9 @@ public:
     //接受文件请求
     Q_INVOKABLE void acceptFile(const QString &ip, const QUrl &saveUrl);
 
+    //接收普通文件到data/download。
+    Q_INVOKABLE void acceptFileToDownload(const QString &ip, const QString &fileName);
+
     //拒绝文件请求
     Q_INVOKABLE void rejectFile(const QString &ip);
 

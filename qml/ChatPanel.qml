@@ -52,6 +52,12 @@ Rectangle{
     property bool isGroupChat: false
     property var appController: null
 
+    //文件传输信息
+    property bool fileTransferVisible: false //是否显示文件传输进度条
+    property string fileTransferName: "" //当前正在传输的文件名
+    property int fileTransferPercent: 0 //当前传输进度，范围0到100
+    property bool fileTransferFromMe: true //当前传输是否属于自己发送的文件消息
+
     color: "#FFFFFF"
 
     ColumnLayout {
@@ -171,6 +177,22 @@ Rectangle{
                     readonly property string content: String(modelData.content)
                     readonly property string senderName: modelData.senderName ? String(modelData.senderName) : ""
 
+                    //普通文件消息前缀
+                    readonly property string filePrefix: "[发送文件] "
+
+                    //当前消息是否为普通文件消息。
+                    readonly property bool isFileMessage: content.startsWith(filePrefix)
+
+                    //取出普通文件消息中的文件名。
+                    readonly property string fileName: isFileMessage ? content.substring(filePrefix.length).trim() : ""
+
+                    //传输进度条的可见性
+                    readonly property bool showFileProgress: root.fileTransferVisible //有文件在传输
+                                                             && isFileMessage //普通文件传输
+                                                             && fileName.trim() === root.fileTransferName.trim() //消息名=传输文件名
+                                                             && fromMe === root.fileTransferFromMe //消息方向一致（防止左右两边同名文件））
+
+
                     //图片消息格式：[图片] /root/.../xxx.png  （[图片] 有个空格！）
                     readonly property string imagePrefix: "[图片] "
                     readonly property bool isImageMessage: content.startsWith(imagePrefix)
@@ -239,11 +261,14 @@ Rectangle{
 
                             Layout.preferredWidth: messageDelegate.isImageMessage
                                                    ? messageDelegate.imageDisplayWidth + 16
-                                                   : Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
+                                                   : messageDelegate.showFileProgress
+                                                     ? Math.min(Math.max(messageText.implicitWidth + 24, 190), messageList.width * 0.7)
+                                                     : Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
 
                             Layout.preferredHeight: messageDelegate.isImageMessage
                                                     ? messageDelegate.imageDisplayHeight + 16
                                                     : messageText.implicitHeight + 18
+                                                      + (messageDelegate.showFileProgress ? 40 : 0)
 
                             radius: 8
 
@@ -255,7 +280,9 @@ Rectangle{
                                 //图片消息不显示文本
                                 visible: !messageDelegate.isImageMessage
 
-                                width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
+                                width: messageDelegate.showFileProgress
+                                       ? Math.max(160, Math.min(implicitWidth, messageList.width * 0.7 - 24))
+                                       : Math.min(implicitWidth, messageList.width * 0.7 - 24)
 
                                 height: implicitHeight
 
@@ -270,6 +297,38 @@ Rectangle{
 
                                 wrapMode: Text.Wrap
                             }
+
+                            //文件传输进度条
+                            ColumnLayout {
+                                visible: messageDelegate.showFileProgress
+
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                anchors.top: messageText.bottom
+                                anchors.topMargin: 6
+
+                                spacing: 3
+
+                                Text {
+                                    text: qsTr("传输中 ") + root.fileTransferPercent + "%"
+                                    color: "grey"
+                                    font.pixelSize: 10
+
+                                    Layout.alignment: messageDelegate.fromMe ? Qt.AlignRight : Qt.AlignLeft
+                                }
+
+                                ProgressBar {
+                                    from: 0
+                                    to: 100
+                                    value: root.fileTransferPercent
+
+                                    Layout.preferredHeight: 5
+                                    Layout.fillWidth: true
+                                }
+                            }
+
 
                             Image {
                                 id: messageImage
@@ -327,6 +386,7 @@ Rectangle{
                             Layout.fillWidth: true
                         }
                     }
+
                 }
 
                 //提供右侧垂直滚动条，用来显示当前滚动位置

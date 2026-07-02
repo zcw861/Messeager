@@ -44,6 +44,8 @@
 //     [v0.2.5] HeZhiyuan    2026-06-29 23:50:41
 //         * 修改主动退群，退出后保留本地群聊成员和历史消息
 //         * 新增：已退出群聊的彻底删除处理，并禁止直接删除正常群聊、禁止已经退出的群聊继续发送消息
+//     [v0.2.6]  JiangFan     2026-06-29
+//         * 完成保存文件逻辑：图片缓存位置从运行目录/data改成/data/cache,下载文件默认保存在/data/download,且自己给自己发送文件默认保存在download
 
 #include "appcontroller.h"
 
@@ -993,18 +995,6 @@ void AppController::sendMessage(const QString &peerId,
         return;
     }
 
-    //如果目标是自己，直接本地保存，不经过网络
-    if (normalizedPeerId == m_chat.localId()) {
-        if (!m_privateChatDatabase.saveMessage(normalizedPeerId, true, normalizedContent)) {
-            reportError(QStringLiteral("保存消息失败：") + m_privateChatDatabase.lastError());
-            return;
-        }
-        if (m_currentPeerId == normalizedPeerId) {
-            refreshMessages();
-        }
-        return;
-    }
-
     //当前网络接口是异步发送，调用返回表示消息已交给发送线程，暂时不代表对方一定已经收到。
     m_chat.sendMessageToUser(normalizedPeerId, normalizedContent);
 
@@ -1072,17 +1062,12 @@ void AppController::sendFile(const QString &peerId,
 
     QString displayMessage;
 
-    //如果是图片，先复制到程序运行目录下的data目录
+    //如果是图片，先复制到程序运行目录下的data/cache目录
     //聊天记录不保存原始图片路径！（避免原图被删除或移动不好管理）
     if (isImageFile) {
-        const QString cacheRoot = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
 
-        if (cacheRoot.isEmpty()) {
-            reportError(QStringLiteral("自动接收图片失败：无法获取系统临时目录！"));
-            return;
-        }
-
-        QDir dataDir(cacheRoot + QStringLiteral("/Messager"));
+        QDir dataDir(QCoreApplication::applicationDirPath()
+                     + QStringLiteral("/data/cache"));
 
         if (!dataDir.exists()) {
             if (!dataDir.mkpath(QStringLiteral("."))) {
@@ -1139,7 +1124,30 @@ void AppController::sendFile(const QString &peerId,
     }
 
     if (normalizedPeerId == m_chat.localId()) {
-        qInfo() << "给自己发送图片，只保存本地记录，不进行网络传输";
+        if (!isImageFile) {
+            QDir downloadDir(QCoreApplication::applicationDirPath()
+                             + QStringLiteral("/data/download"));
+
+            if (!downloadDir.exists()) {
+                if (!downloadDir.mkpath(QStringLiteral("."))) {
+                    reportError(QStringLiteral("保存本机文件失败：无法创建下载目录"));
+                    return;
+                }
+            }
+
+            const QString targetPath = downloadDir.filePath(fileInfo.fileName());
+
+            if (QFile::exists(targetPath)) {
+                QFile::remove(targetPath);
+            }
+
+            if (!QFile::copy(localFilePath, targetPath)) {
+                reportError(QStringLiteral("保存本机文件失败：复制文件到下载目录失败"));
+                return;
+            }
+        }
+
+        qInfo() << "给自己发送文件，只保存本地记录，不进行网络传输";
         return;
     }
 
@@ -1236,15 +1244,7 @@ void AppController::acceptImageFile(const QString &ip, const QString &fileName)
         return;
     }
 
-    const QString cacheRoot =
-        QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-
-    if (cacheRoot.isEmpty()) {
-        reportError(QStringLiteral("发送图片失败：无法获取系统临时目录！"));
-        return;
-    }
-
-    QDir dataDir(cacheRoot + QStringLiteral("/Messager"));
+    QDir dataDir(QCoreApplication::applicationDirPath() + QStringLiteral("/data/cache"));
 
     if (!dataDir.exists()) {
         if (!dataDir.mkpath(QStringLiteral("."))) {
@@ -1325,6 +1325,41 @@ void AppController::handleFileTransferFinished(const QString &ip, const QString 
     qInfo() << "接收图片消息已保存:"
             << "peerId =" << peerId
             << "path =" << fileInfo.absoluteFilePath();
+}
+
+//接收普通文件到程序默认下载目录
+void AppController::acceptFileToDownload(const QString &ip, const QString &fileName)
+{
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化！"));
+        return;
+    }
+
+    const QString normalizedIp = ip.trimmed();
+    const QString normalizedFileName = fileName.trimmed();
+
+    if (normalizedIp.isEmpty() || normalizedFileName.isEmpty()) {
+        reportError(QStringLiteral("接收文件失败：发送方IP或文件名为空"));
+        return;
+    }
+
+    QDir downloadDir(QCoreApplication::applicationDirPath() + QStringLiteral("/data/download"));
+
+    if (!downloadDir.exists()) {
+        if (!downloadDir.mkpath(QStringLiteral("."))) {
+            reportError(QStringLiteral("接收文件失败：无法创建下载目录"));
+            return;
+        }
+    }
+
+    //只取文件名，避免对方传来的名字中带有路径。
+    const QString savePath = downloadDir.filePath(QFileInfo(normalizedFileName).fileName());
+
+    if (QFile::exists(savePath)) QFile::remove(savePath);
+
+    m_translateFile.acceptFile(normalizedIp, savePath);
+
+    qInfo() << "接受文件请求:" << "fromIp =" << normalizedIp << "savePath =" << savePath;
 }
 
 //接受该IP发送的文件
