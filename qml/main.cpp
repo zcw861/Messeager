@@ -2,9 +2,12 @@
 //         * 移除 main.cpp 对 DatabaseManager 的直接创建和初始化
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <signal.h>
 
 int main(int argc, char *argv[])
 {
+    signal(SIGPIPE, SIG_IGN);
+
     QGuiApplication app(argc, argv);
 
     QCoreApplication::setOrganizationName("se.qt.messager");
