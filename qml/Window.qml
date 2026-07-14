@@ -67,6 +67,8 @@
 //           解散群聊会隐藏退出按钮，同时关闭群聊详情界面并清空消息输入框
 //     [v0.3.4] JiangFan    2026-07-02
 //         * 完成文件传输进度条显示在聊天栏
+//     [v0.3.4] JiangFan    2026-07-03
+//         * 修复拒绝文件接受文件不能正确处理的bug，接收文件自动保存在data/download目录（待测试）
 
 import QtQuick
 import QtQuick.Controls
@@ -1193,23 +1195,12 @@ ApplicationWindow {
                 gesturePolicy: TapHandler.ReleaseWithinBounds
 
                 onTapped: {
-                    if (root.pendingFileName.length === 0) {
-                        console.log("待接收文件名为空")
-                        root.fileTransferStatusText = qsTr("待接收文件名为空")
-                        return
-                    }
-
-                    //接收普通文件
-                    root.fileTransferName = root.pendingFileName
-                    root.fileTransferFromMe = false
-                    root.fileTransferPercent = 0
-                    root.fileTransferVisible = true
-
-                    //保存文件到data/download
-                    appController.acceptFileToDownload(root.pendingFileIp, root.pendingFileName)
+                    appController.rejectFile(root.pendingFileIp)
 
                     receiveFilePanel.visible = false
-                    root.fileTransferStatusText = qsTr("已接受文件，等待传输")
+                    root.fileTransferStatusText = qsTr("已拒绝文件")
+
+                    console.log("拒绝文件:", root.pendingFileName, root.pendingFileIp)
                 }
             }
         }
@@ -1250,10 +1241,19 @@ ApplicationWindow {
                         return
                     }
 
-                    //打开保存框前，先给它一个默认保存文件名。
-                    //这样用户不用只选目录，而是直接得到 /root/原文件名。
-                    saveFileDialog.selectedFile = "file:///root/" + encodeURIComponent(root.pendingFileName)
-                    saveFileDialog.open()
+                    //接收普通文件
+                    root.fileTransferName = root.pendingFileName
+                    root.fileTransferFromMe = false
+                    root.fileTransferPercent = 0
+                    root.fileTransferVisible = true
+
+                    //保存文件到data/download
+                    appController.acceptFileToDownload(root.pendingFileIp, root.pendingFileName)
+
+                    receiveFilePanel.visible = false
+                    root.fileTransferStatusText = qsTr("已接受文件，等待传输")
+
+                    console.log("接收文件:", root.pendingFileName, root.pendingFileIp)
                 }
             }
         }
