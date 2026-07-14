@@ -65,6 +65,8 @@
 *        群聊删除确认弹窗，防止误删群聊及历史消息
 * *[v0.3.4] HeZhiyuan 2026-07-02
 *   修复暗色模式下删除用户确认弹窗的显示异常问题
+* *[v0.3.5] JiangFan 2026-07-14
+*   修复bug:右键弹出删除用户选项后，鼠标悬停于此，选项变色，但移除鼠标，颜色未复原
 */
 
 import QtQuick
@@ -683,6 +685,18 @@ Rectangle {
             id: deleteUserMenuItem
             text: qsTr("删除用户")
 
+            HoverHandler {
+                id: deleteUserMenuItemHandCursor
+
+                cursorShape: Qt.PointingHandCursor
+            }
+
+            // 自定义背景，根据悬停状态切换颜色
+            background: Rectangle {
+                color: deleteUserMenuItemHandCursor.hovered ? "#E0E0E0" : "transparent"
+                radius: 4
+            }
+
             contentItem: Text {
                 text: deleteUserMenuItem.text
                 color: "#333333"
@@ -720,6 +734,11 @@ Rectangle {
             //正常群聊触发提示窗口，已退出群聊触发删除确认窗口
             enabled: peerPanel.pendingDeleteGroupId.length > 0
 
+            background: Rectangle {
+                color: deleteGroupMenuItem.highlighted && deleteGroupMenuItem.enabled
+                       ? "#F2F3F5" : "transparent"
+            }
+
             //显式设置文字颜色，避免受到系统暗色模式影响
             contentItem: Text {
                 text: deleteGroupMenuItem.text
@@ -729,12 +748,6 @@ Rectangle {
                 rightPadding: 12
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
-            }
-
-            //显式设置菜单项悬停背景，保持与用户右键菜单一致
-            background: Rectangle {
-                color: deleteGroupMenuItem.highlighted && deleteGroupMenuItem.enabled
-                       ? "#F2F3F5" : "transparent"
             }
 
             //根据群聊活动状态决定打开提示窗口还是删除确认窗口
