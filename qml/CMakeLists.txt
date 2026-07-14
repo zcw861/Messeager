@@ -18,6 +18,12 @@ set_source_files_properties(
         QT_RESOURCE_ALIAS source/file.svg
 )
 
+set_source_files_properties(
+    ../source/messager.png
+    PROPERTIES
+        QT_RESOURCE_ALIAS source/messager.png
+)
+
 qt_add_qml_module(appMessager
     URI "se.qt.messager"
     VERSION 1.0
@@ -35,6 +41,7 @@ qt_add_qml_module(appMessager
         GroupMemberListView.qml
 
     RESOURCES
+        ../source/messager.png
         ../source/file.svg
         ../source/close.svg
         ../source/smaller.svg
