@@ -69,6 +69,8 @@
 //         * 完成文件传输进度条显示在聊天栏
 //     [v0.3.4] JiangFan    2026-07-03
 //         * 修复拒绝文件接受文件不能正确处理的bug，接收文件自动保存在data/download目录（待测试）
+//     [v0.3.5] JiangFan    2026-07-14
+//         * 增加文件传输进度条显示速度和预计剩余时间的内容
 
 import QtQuick
 import QtQuick.Controls
@@ -128,9 +130,10 @@ ApplicationWindow {
     //文件传输状态显示
     property int fileTransferPercent: 0
     property string fileTransferStatusText: ""
-    property string fileTransferName: "" //传输的文件名
     property bool fileTransferVisible: false //进度条的可见性
-    property bool fileTransferFromMe: true  //进度条的归属行
+    property real fileTransferSpeedKBps: 0  //当前文件传输速度，单位KB/s。
+    property int fileTransferRemainingSeconds: -1  //预计剩余时间，单位秒。
+    property double fileTransferMessageId: -1     //当前正在显示进度条的文件消息ID
 
     //C++应用控制器：负责数据库、用户发现和消息收发，QML只处理界面状态
     AppController {
@@ -206,24 +209,31 @@ ApplicationWindow {
         }
 
         //文件传输进度
-        onFileTransferProgress: function(ip, fileName, percent) {
+        //接收底层文件传输线程发送的实时状态。
+        onFileTransferProgress: function(ip, fileName, percent, speedKBps, remainingSeconds)
+        {
             root.fileTransferPercent = percent
-            root.fileTransferName = fileName
+
             root.fileTransferVisible = true
-            root.fileTransferStatusText = qsTr("文件传输中: ") + percent + "%"
+
+            root.fileTransferSpeedKBps = speedKBps
+            root.fileTransferRemainingSeconds = remainingSeconds
+
+            root.fileTransferStatusText =
+                qsTr("文件传输中: ") + percent + "%"
         }
 
-        //文件传输完成
+        //QML这里只负责停止显示运行时进度
         onFileTransferFinished: function(ip, fileName, success) {
-            root.fileTransferPercent = success ? 100 : root.fileTransferPercent
             root.fileTransferStatusText = success
                 ? qsTr("文件传输完成: ") + fileName
                 : qsTr("文件传输失败: ") + fileName
 
-            //传输结束后，隐藏进度条，其他初始化
             root.fileTransferVisible = false
-            root.fileTransferName = ""
+            root.fileTransferMessageId = -1
             root.fileTransferPercent = 0
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
         }
 
         //错误提示
@@ -286,12 +296,14 @@ ApplicationWindow {
                return
            }
 
-           stop()
+            stop()
 
-           //文件保存完毕 —-> 隐藏进度条。
-           root.fileTransferVisible = false
-           root.fileTransferPercent = 0
-           root.fileTransferName = ""
+            //本地模拟进度结束，清理运行时状态。
+            root.fileTransferVisible = false
+            root.fileTransferPercent = 0
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
+            root.fileTransferMessageId = -1
        }
     }
 
@@ -343,45 +355,69 @@ ApplicationWindow {
     }
 
     //发送文件
-    function trySendFile(fileUrl) {
+    function trySendFile(fileUrl)
+    {
+        //当前项目暂时不支持群聊发送文件
         if (root.currentIsGroup) {
             console.log("当前群聊还不支持发文件")
             return
         }
 
-        if (root.currentPeerId === "") {
+        //必须先选择一个私聊用户
+        if (root.currentPeerId.length === 0) {
             console.log("请先选择聊天对象")
             return
         }
 
+        //没有选择有效文件
         if (fileUrl.toString().length === 0) {
             console.log("文件路径为空")
             return
         }
 
-        //从fileUrl中取出文件名。
+        //从文件URL中提取文件名
         var fileName = root.fileNameFromUrl(fileUrl)
 
-        //判断当前选择的文件是否为图片。
+        //图片使用图片消息显示，不使用普通文件进度条
         var isImageFile = root.isImageFileName(fileName)
 
-        //判断是否是自己给自己发送。
-        var isSendToSelf = root.currentPeerIp === appController.localIp()
+        //判断是否发送给自己
+        var isSendToSelf =
+            root.currentPeerIp === appController.localIp()
 
-        //进度条。
-        if (!isImageFile) {
-            root.fileTransferName = fileName
-            root.fileTransferFromMe = true
-            root.fileTransferPercent = 0
-            root.fileTransferVisible = true
-        } else {
-            root.fileTransferName = ""
-            root.fileTransferPercent = 0
+        //C++先将文件消息写入数据库
+        //然后返回该消息唯一的message_id
+        var messageId = appController.sendFile(
+            root.currentPeerId,
+            root.currentPeerName,
+            root.currentPeerIp,
+            fileUrl
+        )
+
+        //消息创建或发送任务启动失败
+        if (messageId <= 0) {
             root.fileTransferVisible = false
+            root.fileTransferMessageId = -1
+            return
         }
 
-        appController.sendFile(root.currentPeerId, root.currentPeerName, root.currentPeerIp, fileUrl)
+        if (!isImageFile) {
+            //将进度条精确绑定到本次新创建的文件消息
+            root.fileTransferMessageId = messageId
+            root.fileTransferPercent = 0
+            root.fileTransferVisible = true
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
+        } else {
+            //图片不显示普通文件进度条
+            root.fileTransferMessageId = -1
+            root.fileTransferPercent = 0
+            root.fileTransferVisible = false
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
+        }
 
+        //自己给自己发送普通文件时，暂时保留模拟进度
         if (!isImageFile && isSendToSelf) {
             root.startLocalFileProgress()
         }
@@ -882,9 +918,15 @@ ApplicationWindow {
 
                                     //传递文件传输信息
                                     fileTransferVisible: root.fileTransferVisible
-                                    fileTransferName: root.fileTransferName
+
                                     fileTransferPercent: root.fileTransferPercent
-                                    fileTransferFromMe: root.fileTransferFromMe
+
+                                    fileTransferSpeedKBps: root.fileTransferSpeedKBps
+
+                                    fileTransferRemainingSeconds: root.fileTransferRemainingSeconds
+
+                                    //ChatPanel通过数据库消息ID精确定位进度条气泡
+                                    fileTransferMessageId: root.fileTransferMessageId
                                 }
 
                                 //群成员列表
@@ -1057,7 +1099,8 @@ ApplicationWindow {
         }
     }
 
-    //接收文件时选择保存路径
+    /*
+    //遗留产物：接收文件时选择保存路径
     FileDialog {
         id: saveFileDialog
 
@@ -1091,6 +1134,16 @@ ApplicationWindow {
             root.fileTransferPercent = 0
             root.fileTransferVisible = true
 
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
+
+            //重新接收同名文件时，清除旧失败标识。
+            if (root.fileTransferFailedName === root.pendingFileName
+                    && root.fileTransferFailedFromMe === false) {
+                root.fileTransferFailed = false
+                root.fileTransferFailedName = ""
+            }
+
             appController.acceptFile(root.pendingFileIp, saveUrl)
 
             receiveFilePanel.visible = false
@@ -1099,6 +1152,8 @@ ApplicationWindow {
             console.log("接受文件:", root.pendingFileName, "保存到:", saveUrl)
         }
     }
+
+    */
 
     //文件接受提示面板
     Rectangle {
@@ -1237,23 +1292,44 @@ ApplicationWindow {
                 onTapped: {
                     if (root.pendingFileName.length === 0) {
                         console.log("待接收文件名为空")
-                        root.fileTransferStatusText = qsTr("待接收文件名为空")
+                        root.fileTransferStatusText =
+                            qsTr("待接收文件名为空")
                         return
                     }
 
-                    //接收普通文件
-                    root.fileTransferName = root.pendingFileName
-                    root.fileTransferFromMe = false
+                    //C++创建[接收文件]消息，并返回数据库message_id
+                    var messageId =
+                        appController.acceptFileToDownload(
+                            root.pendingFileIp,
+                            root.pendingFileName
+                        )
+
+                    //创建消息或启动接收失败时，不关闭接收面板
+                    if (messageId <= 0) {
+                        root.fileTransferStatusText =
+                            qsTr("接受文件失败")
+                        return
+                    }
+
+                    //进度条精确绑定刚创建的接收文件消息
+                    root.fileTransferMessageId = messageId
                     root.fileTransferPercent = 0
                     root.fileTransferVisible = true
-
-                    //保存文件到data/download
-                    appController.acceptFileToDownload(root.pendingFileIp, root.pendingFileName)
+                    root.fileTransferSpeedKBps = 0
+                    root.fileTransferRemainingSeconds = -1
 
                     receiveFilePanel.visible = false
-                    root.fileTransferStatusText = qsTr("已接受文件，等待传输")
 
-                    console.log("接收文件:", root.pendingFileName, root.pendingFileIp)
+                    root.fileTransferStatusText =
+                        qsTr("已接受文件，等待传输")
+
+                    console.log(
+                        "接收文件:",
+                        root.pendingFileName,
+                        root.pendingFileIp,
+                        "messageId:",
+                        messageId
+                    )
                 }
             }
         }

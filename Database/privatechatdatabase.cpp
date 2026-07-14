@@ -46,18 +46,86 @@ bool PrivateChatDatabase::initSchema()
     //FOREIGN KEY表示messages.peer_id必须对应peers.peer_id。
     //ON DELETE CASCADE表示如果某个peer被删除，该 peer 对应的消息也自动删除
     const QString createMessagesSql = R"(
-        CREATE TABLE IF NOT EXISTS messages(
-            message_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            peer_id TEXT NOT NULL,
-            from_me INTEGER NOT NULL CHECK(from_me IN (0, 1)),
-            content TEXT NOT NULL CHECK(length(trim(content)) > 0),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CREATE TABLE IF NOT EXISTS messages(
+        message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        peer_id TEXT NOT NULL,
+        from_me INTEGER NOT NULL CHECK(from_me IN (0, 1)),
+        content TEXT NOT NULL CHECK(length(trim(content)) > 0),
 
-            FOREIGN KEY(peer_id) REFERENCES peers(peer_id) ON DELETE CASCADE
+        transfer_status TEXT NOT NULL DEFAULT 'none'
+            CHECK(transfer_status IN (
+                'none',
+                'transferring',
+                'completed',
+                'failed'
+            )),
+
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+        FOREIGN KEY(peer_id)
+            REFERENCES peers(peer_id)
+            ON DELETE CASCADE
         )
     )";
 
     if (!m_databaseCore.execute(createMessagesSql, m_lastError)) {
+        database.rollback();
+        return false;
+    }
+
+    //检查旧数据库中是否已经存在transfer_status字段。
+    QSqlQuery tableInfoQuery(database);
+
+    if (!tableInfoQuery.exec(
+            QStringLiteral("PRAGMA table_info(messages)"))) {
+
+        m_lastError = tableInfoQuery.lastError().text();
+        database.rollback();
+        return false;
+    }
+
+    bool hasTransferStatusColumn = false;
+
+    while (tableInfoQuery.next()) {
+        const QString columnName =
+            tableInfoQuery.value(1).toString();
+
+        if (columnName == QStringLiteral("transfer_status")) {
+            hasTransferStatusColumn = true;
+            break;
+        }
+    }
+
+    tableInfoQuery.finish();
+
+    //旧数据库没有该字段时，执行一次迁移。
+    if (!hasTransferStatusColumn) {
+        QSqlQuery alterQuery(database);
+
+        const QString alterSql = QStringLiteral(
+            "ALTER TABLE messages "
+            "ADD COLUMN transfer_status "
+            "TEXT NOT NULL DEFAULT 'none'"
+            );
+
+        if (!alterQuery.exec(alterSql)) {
+            m_lastError = alterQuery.lastError().text();
+            database.rollback();
+            return false;
+        }
+    }
+
+    //程序上一次运行时仍处于transferring的消息，
+    //说明程序在传输结束前退出，应当恢复为失败状态。
+    QSqlQuery recoverQuery(database);
+
+    if (!recoverQuery.exec(QStringLiteral(
+            "UPDATE messages "
+            "SET transfer_status = 'failed' "
+            "WHERE transfer_status = 'transferring'"
+            ))) {
+
+        m_lastError = recoverQuery.lastError().text();
         database.rollback();
         return false;
     }
@@ -87,9 +155,13 @@ bool PrivateChatDatabase::initSchema()
 }
 
 //校验peerId和消息正文后保存私聊消息
-bool PrivateChatDatabase::saveMessage(const QString &peerId, bool fromMe, const QString &content)
+bool PrivateChatDatabase::saveMessage(const QString &peerId, bool fromMe, const QString &content, qint64 *insertedMessageId, const QString &transferStatus)
 {
     m_lastError.clear();
+
+    //调用失败时，输出参数保持为无效ID
+    if (insertedMessageId != nullptr)
+        *insertedMessageId = -1;
 
     QSqlDatabase database = m_databaseCore.database();
 
@@ -102,6 +174,19 @@ bool PrivateChatDatabase::saveMessage(const QString &peerId, bool fromMe, const 
     const QString normalizedPeerId = DatabaseCheck::normalizePeerId(peerId);
 
     const QString normalizedContent = content.trimmed();
+
+    const QString normalizedTransferStatus =
+        transferStatus.trimmed().toLower();
+
+    //只允许数据库定义的四种状态。
+    if (normalizedTransferStatus != QStringLiteral("none")
+        && normalizedTransferStatus != QStringLiteral("transferring")
+        && normalizedTransferStatus != QStringLiteral("completed")
+        && normalizedTransferStatus != QStringLiteral("failed")) {
+
+        m_lastError = QStringLiteral("文件传输状态不合法");
+        return false;
+    }
 
     //检查peerId是否合法
     if (normalizedPeerId.isEmpty()) {
@@ -123,12 +208,14 @@ bool PrivateChatDatabase::saveMessage(const QString &peerId, bool fromMe, const 
         INSERT INTO messages(
             peer_id,
             from_me,
-            content
+            content,
+            transfer_status
         )
         VALUES(
             :peer_id,
             :from_me,
-            :content
+            :content,
+            :transfer_status
         )
     )";
 
@@ -145,8 +232,89 @@ bool PrivateChatDatabase::saveMessage(const QString &peerId, bool fromMe, const 
     //绑定已经去除首尾空白的消息正文
     query.bindValue(QStringLiteral(":content"), normalizedContent);
 
+    query.bindValue(QStringLiteral(":transfer_status"), normalizedTransferStatus);
+
     if (!query.exec()) {
         m_lastError = query.lastError().text();
+        return false;
+    }
+
+    //如果调用者需要新消息ID，就读取SQLite刚刚自动生成的message_id。
+    //lastInsertId()必须在INSERT语句成功执行后调用，不能放在SELECT查询里。
+    if (insertedMessageId != nullptr) {
+        const QVariant insertedId = query.lastInsertId();
+
+        if (!insertedId.isValid()) {
+            m_lastError = QStringLiteral("无法取得新消息ID");
+            return false;
+        }
+
+        *insertedMessageId = insertedId.toLongLong();
+    }
+
+    return true;
+}
+
+//根据message_id更新文件传输状态。
+bool PrivateChatDatabase::updateTransferStatus(
+    qint64 messageId,
+    const QString &transferStatus)
+{
+    m_lastError.clear();
+
+    if (messageId <= 0) {
+        m_lastError = QStringLiteral("消息ID无效");
+        return false;
+    }
+
+    const QString normalizedStatus =
+        transferStatus.trimmed().toLower();
+
+    if (normalizedStatus != QStringLiteral("transferring")
+        && normalizedStatus != QStringLiteral("completed")
+        && normalizedStatus != QStringLiteral("failed")) {
+
+        m_lastError = QStringLiteral("文件传输状态不合法");
+        return false;
+    }
+
+    QSqlDatabase database = m_databaseCore.database();
+
+    if (!database.isValid() || !database.isOpen()) {
+        m_lastError = QStringLiteral("数据库未打开");
+        return false;
+    }
+
+    QSqlQuery query(database);
+
+    const QString sql = R"(
+        UPDATE messages
+        SET transfer_status = :transfer_status
+        WHERE message_id = :message_id
+    )";
+
+    if (!query.prepare(sql)) {
+        m_lastError = query.lastError().text();
+        return false;
+    }
+
+    query.bindValue(
+        QStringLiteral(":transfer_status"),
+        normalizedStatus
+        );
+
+    query.bindValue(
+        QStringLiteral(":message_id"),
+        messageId
+        );
+
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        return false;
+    }
+
+    if (query.numRowsAffected() != 1) {
+        m_lastError = QStringLiteral("没有找到需要更新的文件消息");
         return false;
     }
 
@@ -192,6 +360,7 @@ bool PrivateChatDatabase::loadMessages(const QString &peerId, QVariantList &mess
             peer_id,
             from_me,
             content,
+            transfer_status,
             created_at
         FROM (
             SELECT
@@ -199,6 +368,7 @@ bool PrivateChatDatabase::loadMessages(const QString &peerId, QVariantList &mess
                 peer_id,
                 from_me,
                 content,
+                transfer_status,
                 created_at
             FROM messages
             WHERE peer_id = :peer_id
@@ -214,6 +384,7 @@ bool PrivateChatDatabase::loadMessages(const QString &peerId, QVariantList &mess
 
         return false;
     }
+
     //绑定目标用户UUID，避免直接拼接用户输入
     query.bindValue(QStringLiteral(":peer_id"), normalizedPeerId);
     //绑定已经限制后的消息数量
@@ -235,10 +406,12 @@ bool PrivateChatDatabase::loadMessages(const QString &peerId, QVariantList &mess
         message.insert(QStringLiteral("peerId"), query.value(1).toString());
         //把整数方向转换为bool，判断消息气泡方向
         message.insert(QStringLiteral("fromMe"), query.value(2).toInt() != 0);
-        //消息正文
+
         message.insert(QStringLiteral("content"), query.value(3).toString());
-        //数据库创建时间
-        message.insert(QStringLiteral("createdAt"), query.value(4).toString());
+
+        message.insert(QStringLiteral("transferStatus"), query.value(4).toString());
+
+        message.insert(QStringLiteral("createdAt"), query.value(5).toString());
 
         //把当前消息追加到输出列表
         messages.append(message);

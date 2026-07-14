@@ -110,19 +110,19 @@ public:
                                  const QString &ip,
                                  const QString &content);
     //向指定用户发送文件
-    Q_INVOKABLE void sendFile(const QString &peerId,
-                              const QString &username,
-                              const QString &ip,
-                              const QUrl &fileUrl);
+    Q_INVOKABLE qint64 sendFile(const QString &peerId,
+                                const QString &username,
+                                const QString &ip,
+                                const QUrl &fileUrl);
 
     //调用系统默认程序打开本地文件
     Q_INVOKABLE void openLocalFile(const QString &url);
 
     //接受文件请求
-    Q_INVOKABLE void acceptFile(const QString &ip, const QUrl &saveUrl);
+    //Q_INVOKABLE void acceptFile(const QString &ip, const QUrl &saveUrl);
 
     //接收普通文件到data/download。
-    Q_INVOKABLE void acceptFileToDownload(const QString &ip, const QString &fileName);
+    Q_INVOKABLE qint64 acceptFileToDownload(const QString &ip, const QString &fileName);
 
     //拒绝文件请求
     Q_INVOKABLE void rejectFile(const QString &ip);
@@ -177,7 +177,7 @@ signals:
     void operationFailed(const QString &message);   //业务操作失败时发出
 
     void fileRequestReceived(const QString &fromfp, const QString &fileName, qint64 fileSize); //收到对方文件发送请求
-    void fileTransferProgress(const QString &ip, const QString &fileName, int percent); //传输进度条
+    void fileTransferProgress(const QString &ip,const QString &fileName, int percent, double speedKBps, int remainingSeconds);
     void fileTransferFinished(const QString &ip, const QString &fileName, bool isSuccess); //文件传输结果
 
 private:    
@@ -270,4 +270,17 @@ private:
 
     //自动接收图片时，记录发送方IP对应的本地保存路径
     QHash<QString, QString> m_pendingImageSavePaths;
+
+    //生成文件传输任务的查找键。
+    //当前项目按“对方IP + 文件名”查找正在进行的传输任务。
+    //真正定位聊天气泡时使用数据库messageId，不再只依赖文件名。
+    static QString fileTransferKey(const QString &ip, const QString &fileName);
+
+    //发送普通文件时：
+    //key为“对方IP + 文件名”，value为发送文件消息的数据库messageId。
+    QHash<QString, qint64> m_outgoingFileMessageIds;
+
+    //接收普通文件时：
+    //key为“对方IP + 文件名”，value为接收文件消息的数据库messageId。
+    QHash<QString, qint64> m_incomingFileMessageIds;
 };
