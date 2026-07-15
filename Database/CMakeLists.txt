@@ -40,3 +40,8 @@ target_compile_definitions(Database
     PRIVATE
         DATABASE_LIBRARY
 )
+
+install(TARGETS Database
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
