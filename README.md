@@ -117,10 +117,10 @@ sudo gtk-update-icon-cache /usr/share/icons/hicolor
 
 ### 方案二（推荐）
 
-### 步骤 1：下载 messager-bin-x86_64.pkg.tar.zst（见Releases）
+### 步骤 1：下载 messager-bin-0.1-3-x86_64.pkg.tar.zst （见Releases）
 ```bash
 # 进入压缩包所在目录，打开终端（确认当前路径是压缩包所在路径）
-pacman -U messager-bin-0.1-2-x86_64.pkg.tar.zst 
+pacman -U messager-bin-0.1-3-x86_64.pkg.tar.zst 
 ```
 ### 步骤二
 打开系统菜单栏搜索messager即可看到该项目
