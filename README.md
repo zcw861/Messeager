@@ -121,6 +121,8 @@ sudo gtk-update-icon-cache /usr/share/icons/hicolor
 ```bash
 # 进入压缩包所在目录，打开终端（确认当前路径是压缩包所在路径）
 pacman -U messager-bin-0.1-2-x86_64.pkg.tar.zst 
+# 卸载
+sudo pacman -Rns messager-bin
 ```
 ### 步骤二
 打开系统菜单栏搜索messager即可看到该项目
