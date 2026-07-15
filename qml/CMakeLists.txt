@@ -18,6 +18,12 @@ set_source_files_properties(
         QT_RESOURCE_ALIAS source/file.svg
 )
 
+set_source_files_properties(
+    ../source/messager.png
+    PROPERTIES
+        QT_RESOURCE_ALIAS source/messager.png
+)
+
 qt_add_qml_module(appMessager
     URI "se.qt.messager"
     VERSION 1.0
@@ -35,13 +41,22 @@ qt_add_qml_module(appMessager
         GroupMemberListView.qml
 
     RESOURCES
+        ../source/messager.png
         ../source/file.svg
         ../source/close.svg
         ../source/smaller.svg
         ../source/bigger.svg
         ../source/bigger2.svg
+        ../source/transfer_failed.svg
 )
 target_compile_features(appMessager PRIVATE cxx_std_23)
+
+#把项目源码根目录传给C++。
+target_compile_definitions(appMessager
+    PRIVATE
+        MESSAGER_PROJECT_ROOT=\"${CMAKE_SOURCE_DIR}\"
+)
+
 target_link_libraries(appMessager
     PRIVATE
         Qt6::Quick

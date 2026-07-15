@@ -63,6 +63,10 @@
 *   新增：已退出群聊的右键删除功能
 *        未退出群聊点击删除时的提示弹窗，引导用户先退出群聊
 *        群聊删除确认弹窗，防止误删群聊及历史消息
+* *[v0.3.4] HeZhiyuan 2026-07-02
+*   修复暗色模式下删除用户确认弹窗的显示异常问题
+* *[v0.3.5] JiangFan 2026-07-14
+*   修复bug:右键弹出删除用户选项后，鼠标悬停于此，选项变色，但移除鼠标，颜色未复原
 */
 
 import QtQuick
@@ -681,6 +685,18 @@ Rectangle {
             id: deleteUserMenuItem
             text: qsTr("删除用户")
 
+            HoverHandler {
+                id: deleteUserMenuItemHandCursor
+
+                cursorShape: Qt.PointingHandCursor
+            }
+
+            // 自定义背景，根据悬停状态切换颜色
+            background: Rectangle {
+                color: deleteUserMenuItemHandCursor.hovered ? "#E0E0E0" : "transparent"
+                radius: 4
+            }
+
             contentItem: Text {
                 text: deleteUserMenuItem.text
                 color: "#333333"
@@ -718,6 +734,11 @@ Rectangle {
             //正常群聊触发提示窗口，已退出群聊触发删除确认窗口
             enabled: peerPanel.pendingDeleteGroupId.length > 0
 
+            background: Rectangle {
+                color: deleteGroupMenuItem.highlighted && deleteGroupMenuItem.enabled
+                       ? "#F2F3F5" : "transparent"
+            }
+
             //显式设置文字颜色，避免受到系统暗色模式影响
             contentItem: Text {
                 text: deleteGroupMenuItem.text
@@ -727,12 +748,6 @@ Rectangle {
                 rightPadding: 12
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
-            }
-
-            //显式设置菜单项悬停背景，保持与用户右键菜单一致
-            background: Rectangle {
-                color: deleteGroupMenuItem.highlighted && deleteGroupMenuItem.enabled
-                       ? "#F2F3F5" : "transparent"
             }
 
             //根据群聊活动状态决定打开提示窗口还是删除确认窗口
@@ -759,48 +774,207 @@ Rectangle {
             peerPanel.groupCreationRequested(groupName, members)
         }
     }
-
+    //删除用户确认窗口
     Dialog {
         id: deletePeerDialog
 
         parent: Overlay.overlay
-        anchors.centerIn: parent
 
-        implicitWidth: 360
+        //弹窗显示时阻止用户继续操作后面的主窗口
         modal: true
-        title: qsTr("删除用户")
 
-        standardButtons: Dialog.Ok | Dialog.Cancel
+        //让弹窗可以接收键盘焦点
+        focus: true
 
-        contentItem: Text {
-            text: qsTr("确定要删除用户“%1”吗?\n聊天记录也会清除").arg(peerPanel.pendingDeletePeerName)
+        width: 380
+        height: 210
 
-            wrapMode: Text.Wrap
-            color: "#333333"
-            font.pixelSize: 14
-        }
+        //将弹窗放置在主窗口中央
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
 
+        padding: 0
+
+        //弹窗打开后把活动焦点交给删除按钮
         onOpened: {
-            const deleteButton = deletePeerDialog.standardButton(Dialog.Ok)
-
-            const cancelButton = deletePeerDialog.standardButton(Dialog.Cancel)
-
-            if (deleteButton)
-                deleteButton.text = qsTr("删除")
-
-            if (cancelButton)
-                cancelButton.text = qsTr("取消")
+            Qt.callLater(function() {
+                deletePeerConfirmButton.forceActiveFocus()
+            })
         }
 
-        onAccepted: {
+        function confirmDeletePeer() {
             if (peerPanel.pendingDeletePeerId.length === 0)
                 return
 
+            //由onAccepted发送删除请求
+            deletePeerDialog.accept()
+        }
+
+        //设置弹窗外部半透明遮罩，使删除确认状态更加明显
+        Overlay.modal: Rectangle {
+            color: "#80000000"
+        }
+
+        //设置浅色弹窗背景，避免暗色模式
+        background: Rectangle {
+            radius: 10
+            color: "#FFFFFF"
+            border.color: "#DCDCDC"
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            //弹窗标题区域
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 48
+
+                color: "#F5F5F5"
+                radius: 10
+
+                Text {
+                    width: parent.width
+                    height: parent.height
+                    leftPadding: 18
+
+                    text: qsTr("删除用户")
+                    color: "#222222"
+                    font.pixelSize: 16
+                    font.bold: true
+
+                    horizontalAlignment: Text.AlignLeft
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            //弹窗提示内容
+            Text {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                Layout.topMargin: 16
+                Layout.bottomMargin: 12
+
+                text: qsTr("确定要删除用户“%1”吗？\n聊天记录也会清除")
+                      .arg(peerPanel.pendingDeletePeerName)
+
+                color: "#333333"
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            //弹窗底部按钮区域
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 58
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+                Layout.bottomMargin: 8
+
+                spacing: 10
+
+                //使用弹性占位项将操作按钮放置在右侧
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                //取消按钮
+                Rectangle {
+                    id: deletePeerCancelButton
+
+                    Layout.preferredWidth: 76
+                    Layout.preferredHeight: 32
+
+                    radius: 8
+                    color: deletePeerCancelHover.hovered ? "#EEEEEE" : "#F8F8F8"
+                    border.color: "#C2C2C2"
+                    border.width: 1
+
+                    Text {
+                        width: parent.width
+                        height: parent.height
+
+                        text: qsTr("取消")
+                        color: "#333333"
+                        font.pixelSize: 14
+
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    HoverHandler {
+                        id: deletePeerCancelHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                        onTapped: deletePeerDialog.reject()
+                    }
+                }
+
+                //删除按钮
+                Rectangle {
+                    id: deletePeerConfirmButton
+
+                    Layout.preferredWidth: 76
+                    Layout.preferredHeight: 32
+
+                    //通过Tab键获得焦点
+                    activeFocusOnTab: true
+
+                    radius: 8
+                    color: deletePeerConfirmHover.hovered ? "#C92F2F" : "#E13B3B"
+
+                    Text {
+                        width: parent.width
+                        height: parent.height
+
+                        text: qsTr("删除")
+                        color: "#FFFFFF"
+                        font.pixelSize: 14
+
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    HoverHandler {
+                        id: deletePeerConfirmHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                        onTapped: deletePeerDialog.confirmDeletePeer()
+                    }
+
+                    //按钮获得活动焦点后，Enter确认删除
+                    Keys.onPressed: function(event) {
+                        if (event.key === Qt.Key_Return) {
+                            event.accepted = true
+                            deletePeerDialog.confirmDeletePeer()
+                        }
+                    }
+                }
+            }
+        }
+
+        //弹窗确认关闭后，将请求发送给Window.qml
+        onAccepted: {
             peerPanel.peerDeleteRequested(
                 peerPanel.pendingDeletePeerId
             )
         }
 
+        //弹窗关闭后清除用户信息
         onClosed: {
             peerPanel.pendingDeletePeerId = ""
             peerPanel.pendingDeletePeerName = ""

@@ -13,6 +13,8 @@
 //         * 完善群聊协议(握手，数据)
 //     [v0.1.4] ZhouChengWei    2026-06-27 14:41:07
 //         * 添加了解散/退群群聊的消息类型
+//     [v0.1.5] ZhouChengWei    2026-07-14 16:55:24
+//         * 增加了用于确定文件数据是否接受成功的类型
 
 #pragma once
 
@@ -47,6 +49,7 @@
 #define MSG_TYPE_TCP_GROUP_ACK      0x37   //群聊TCP握手确认
 #define MSG_TYPE_TCP_GROUP_LEAVE    0x38   //成员退出群聊
 #define MSG_TYPE_TCP_GROUP_DISMISS  0x39   //群主解散群聊
+#define MSG_TYPE_TCP_FILE_RESULT    0x3A   //文件数据接收完成后的最终结果
 
 //单个TCP载荷允许的最大字节数（1MB）
 #define MAX_TCP_PAYLOAD_SIZE (1024 * 1024)

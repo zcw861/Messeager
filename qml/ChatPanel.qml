@@ -36,6 +36,9 @@
 * * 添加了打开群聊详情界面的按钮，主要用于退出/解散群聊
 * [v0.2.8] JiangFan  2026-06-28
 * * 将图片文件与其他文件区别开，能够缓存图片文件，直接显示到聊天界面
+* [v0.2.9] JiangFan  2026-07-14
+* * 增加文件传输失败，显示错误图标（气泡外面的那个红色的svg图片）
+* * 文件传输失败状态改为从数据库获取（transferStatus）
 */
 
 import QtQuick
@@ -52,7 +55,39 @@ Rectangle{
     property bool isGroupChat: false
     property var appController: null
 
+    //文件传输信息
+    //当前是否显示文件传输进度。
+    property bool fileTransferVisible: false
+
+    //当前传输百分比。
+    property int fileTransferPercent: 0
+
+    //当前速度，单位KB/s。
+    property real fileTransferSpeedKBps: 0
+
+    //预计剩余秒数，-1表示暂时未知。
+    property int fileTransferRemainingSeconds: -1
+
+    //当前正在显示进度条的数据库消息ID，每条消息都有唯一message_id，因此不会误匹配同名文件
+    property double fileTransferMessageId: -1
+
+
     color: "#FFFFFF"
+
+    //把剩余秒数转换为适合界面显示的文字。
+    function formatRemainingTime(seconds)
+    {
+        if (seconds < 0)
+            return "--"
+
+        if (seconds < 60)
+            return seconds + "秒"
+
+        var minutes = Math.floor(seconds / 60)
+        var restSeconds = seconds % 60
+
+        return minutes + "分" + restSeconds + "秒"
+    }
 
     ColumnLayout {
         id: chatLayout
@@ -171,6 +206,51 @@ Rectangle{
                     readonly property string content: String(modelData.content)
                     readonly property string senderName: modelData.senderName ? String(modelData.senderName) : ""
 
+                    //数据库中每条私聊消息的唯一ID。
+                    //群聊消息没有messageId时，使用-1。
+                    readonly property double messageId: modelData.messageId !== undefined
+                                                        ? Number(modelData.messageId)
+                                                        : -1
+
+                    //数据库持久化的文件传输状态。
+                    //普通消息和图片消息默认为none。
+                    readonly property string transferStatus: modelData.transferStatus !== undefined
+                                                             ? String(modelData.transferStatus)
+                                                             : "none"
+
+                    //自己发送的文件消息前缀。
+                    readonly property string sendFilePrefix: "[发送文件] "
+
+                    //接收对方文件时保存的消息前缀。
+                    readonly property string receiveFilePrefix: "[接收文件] "
+
+                    readonly property bool isSendFileMessage:
+                        content.startsWith(sendFilePrefix)
+
+                    readonly property bool isReceiveFileMessage:
+                        content.startsWith(receiveFilePrefix)
+
+                    readonly property bool isFileMessage:
+                        isSendFileMessage || isReceiveFileMessage
+
+                    //从两种文件消息中统一提取文件名。
+                    readonly property string fileName:
+                        isSendFileMessage
+                        ? content.substring(sendFilePrefix.length).trim()
+                        : isReceiveFileMessage
+                          ? content.substring(receiveFilePrefix.length).trim()
+                          : ""
+
+                    //传输进度条的可见性
+                    readonly property bool showFileProgress: root.fileTransferVisible
+                        && isFileMessage
+                        && messageId > 0
+                        && Number(messageId)=== Number(root.fileTransferMessageId)
+
+                    //当前这条文件消息是否传输失败。
+                    readonly property bool showFileFailed: isFileMessage && transferStatus === "failed"
+
+
                     //图片消息格式：[图片] /root/.../xxx.png  （[图片] 有个空格！）
                     readonly property string imagePrefix: "[图片] "
                     readonly property bool isImageMessage: content.startsWith(imagePrefix)
@@ -232,6 +312,21 @@ Rectangle{
                             Layout.fillWidth: true
                         }
 
+                        //自己的文件消息在右侧。
+                        //传输失败图标放在气泡左边。
+                        Image {
+                            visible: messageDelegate.fromMe && messageDelegate.showFileFailed
+
+                            source: "source/transfer_failed.svg"
+
+                            Layout.preferredWidth: 20
+                            Layout.preferredHeight: 20
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.rightMargin: 6
+
+                            fillMode: Image.PreserveAspectFit
+                        }
+
                         Rectangle {
                             id: messageBubble
 
@@ -239,11 +334,14 @@ Rectangle{
 
                             Layout.preferredWidth: messageDelegate.isImageMessage
                                                    ? messageDelegate.imageDisplayWidth + 16
-                                                   : Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
+                                                   : messageDelegate.showFileProgress
+                                                     ? Math.min(Math.max(messageText.implicitWidth + 24, 300), messageList.width * 0.7)
+                                                     : Math.min(messageText.implicitWidth + 24, messageList.width * 0.7)
 
                             Layout.preferredHeight: messageDelegate.isImageMessage
                                                     ? messageDelegate.imageDisplayHeight + 16
                                                     : messageText.implicitHeight + 18
+                                                      + (messageDelegate.showFileProgress ? 40 : 0)
 
                             radius: 8
 
@@ -255,7 +353,9 @@ Rectangle{
                                 //图片消息不显示文本
                                 visible: !messageDelegate.isImageMessage
 
-                                width: Math.min(implicitWidth, messageList.width * 0.7 - 24)
+                                width: messageDelegate.showFileProgress
+                                       ? Math.max(160, Math.min(implicitWidth, messageList.width * 0.7 - 24))
+                                       : Math.min(implicitWidth, messageList.width * 0.7 - 24)
 
                                 height: implicitHeight
 
@@ -270,6 +370,57 @@ Rectangle{
 
                                 wrapMode: Text.Wrap
                             }
+
+                            //文件传输进度条
+                            ColumnLayout {
+                                visible: messageDelegate.showFileProgress
+
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                anchors.top: messageText.bottom
+                                anchors.topMargin: 6
+
+                                spacing: 3
+
+                                Text {
+                                    text: {
+                                        var speedText =
+                                            root.fileTransferSpeedKBps > 0
+                                            ? root.fileTransferSpeedKBps.toFixed(1) + " KB/s"
+                                            : "-- KB/s"
+
+                                        var remainingText =
+                                            root.fileTransferRemainingSeconds >= 0
+                                            ? root.formatRemainingTime(
+                                                  root.fileTransferRemainingSeconds
+                                              )
+                                            : "--"
+
+                                        return qsTr("传输中 ")
+                                               + root.fileTransferPercent + "%  "
+                                               + speedText
+                                               + "  剩余 "
+                                               + remainingText
+                                    }
+
+                                    color: "grey"
+                                    font.pixelSize: 10
+
+                                    Layout.alignment: messageDelegate.fromMe ? Qt.AlignRight : Qt.AlignLeft
+                                }
+
+                                ProgressBar {
+                                    from: 0
+                                    to: 100
+                                    value: root.fileTransferPercent
+
+                                    Layout.preferredHeight: 5
+                                    Layout.fillWidth: true
+                                }
+                            }
+
 
                             Image {
                                 id: messageImage
@@ -320,6 +471,21 @@ Rectangle{
                             }
                         }
 
+                        //对方的文件消息在左侧。
+                        //传输失败图标放在气泡右边。
+                        Image {
+                            visible: !messageDelegate.fromMe && messageDelegate.showFileFailed
+
+                            source: "source/transfer_failed.svg"
+
+                            Layout.preferredWidth: 20
+                            Layout.preferredHeight: 20
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.leftMargin: 6
+
+                            fillMode: Image.PreserveAspectFit
+                        }
+
                         //他人发送时，将气泡保留在左侧。
                         Item {
                             visible: !messageDelegate.fromMe
@@ -327,6 +493,7 @@ Rectangle{
                             Layout.fillWidth: true
                         }
                     }
+
                 }
 
                 //提供右侧垂直滚动条，用来显示当前滚动位置

@@ -7,6 +7,9 @@
 //         * 添加了部分函数用于文件传输
 //     [v0.1.2] ZhouChengWei    2026-06-23 14:05:08
 //         * 添加了处理发送的辅助函数
+//     [v0.1.3] ZhouChengWei    2026-07-14 16:58:05
+//         * 文件传输进度信号函数添加了2个参数用于传输文件时报告剩余时间和平均速度
+//         * 添加了文件传输结果结构体，用于确认对方是否接受文件成功
 
 #pragma once
 
@@ -37,6 +40,12 @@ struct FileAck {
     uint8_t accept;   //1接受，0拒绝
 };
 
+//文件最终结果：接收方是否完整保存成功
+struct FileResult {
+    uint8_t type;
+    uint8_t success;
+};
+
 //文件数据头
 struct FileDataHeader {
     uint8_t type;
@@ -65,8 +74,9 @@ public:
 signals:
     //收到文件传输请求
     void fileRequestReceived(const QString &fromIp, const QString &fileName, qint64 fileSize);
-    //文件传输进度
-    void fileTransferProgress(const QString &ip, const QString &fileName, int percent);
+    //文件传输进度(speedKBps:平均速度 remainingSeconds: 剩余秒数)
+    void fileTransferProgress(const QString &ip, const QString &fileName,
+                              int percent, double speedKBps, int remainingSeconds);
     //文件传输完成
     void fileTransferFinished(const QString &ip, const QString &fileName, bool success);
 

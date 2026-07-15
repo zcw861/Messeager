@@ -40,3 +40,8 @@ target_link_libraries(IPMSG
         # Qt6::Widgets
         Threads::Threads
 )
+
+install(TARGETS IPMSG IPMSGplugin
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)

@@ -47,6 +47,13 @@
 //     [v0.2.6] HeZhiyuan    2026-07-02 00:53:52
 //         * 修复sendGroupMessage()因为未调用网络层导致群聊消息无法发送的问题
 //           因群成员退出或群聊解散后导致群聊少于三人时更新解散状态，保留群成员和消息历史
+//     [v0.2.7]  JiangFan     2026-07-02
+//         * 完成保存文件逻辑：图片缓存位置从运行目录/data改成/data/cache,下载文件默认保存在/data/download,且自己给自己发送文件默认保存在download
+//     [v0.2.8]  JiangFan     2026-07-13
+//         * 文件保存逻辑修改：文件默认保存路径已改为项目根目录/data
+//         * 完善了文件传输机制: 增加发送、接收文件任务与数据库消息ID的映射 (如果没有，会产生bug: 文件和单独的消息没有联系，以前的文件会受到最新发送的文件的影响)
+//         *
+
 #include "appcontroller.h"
 
 #include <QVariantMap>
@@ -66,6 +73,26 @@
 #include <QStandardPaths>
 #include <QImageReader>
 #include <QProcess>
+
+//使用匿名命名空间，不增加多余qml接口
+//用来返回项目根目录下指定的目录
+namespace
+{
+
+    QString projectDataDirectory(const QString &subdirectory)
+    {
+        //当前项目源码根目录。
+        const QDir projectRoot(
+            QString::fromUtf8(MESSAGER_PROJECT_ROOT)
+            );
+
+        return projectRoot.filePath(
+            QStringLiteral("data/") + subdirectory
+            );
+    }
+
+}
+
 
 AppController::AppController(QObject *parent)
     : QObject(parent),
@@ -1002,18 +1029,6 @@ void AppController::sendMessage(const QString &peerId,
         return;
     }
 
-    //如果目标是自己，直接本地保存，不经过网络
-    if (normalizedPeerId == m_chat.localId()) {
-        if (!m_privateChatDatabase.saveMessage(normalizedPeerId, true, normalizedContent)) {
-            reportError(QStringLiteral("保存消息失败：") + m_privateChatDatabase.lastError());
-            return;
-        }
-        if (m_currentPeerId == normalizedPeerId) {
-            refreshMessages();
-        }
-        return;
-    }
-
     //当前网络接口是异步发送，调用返回表示消息已交给发送线程，暂时不代表对方一定已经收到。
     m_chat.sendMessageToUser(normalizedPeerId, normalizedContent);
 
@@ -1029,14 +1044,25 @@ void AppController::sendMessage(const QString &peerId,
     }
 }
 
-void AppController::sendFile(const QString &peerId,
-                             const QString &username,
-                             const QString &ip,
-                             const QUrl &fileUrl)
+//生成文件传输任务的统一查找键。
+//QFileInfo(...).fileName()只保留文件名，避免一边传入完整路径、
+//另一边传入文件名时无法匹配。
+QString AppController::fileTransferKey(const QString &ip,
+                                       const QString &fileName)
+{
+    return ip.trimmed()
+    + QLatin1Char('\n')
+        + QFileInfo(fileName).fileName();
+}
+
+qint64 AppController::sendFile(const QString &peerId,
+                               const QString &username,
+                               const QString &ip,
+                               const QUrl &fileUrl)
 {
     if (!m_ready) {
         reportError(QStringLiteral("程序尚未初始化"));
-        return;
+        return -1;
     }
 
     const QString normalizedPeerId = peerId.trimmed();
@@ -1045,12 +1071,12 @@ void AppController::sendFile(const QString &peerId,
 
     if (normalizedPeerId.isEmpty() || normalizedName.isEmpty() || normalizedIp.isEmpty()) {
         reportError(QStringLiteral("文件发送失败：聊天对象信息不完整"));
-        return;
+        return -1;
     }
 
     if (!fileUrl.isLocalFile()) {
         reportError(QStringLiteral("文件发送失败：当前只支持本地文件"));
-        return;
+        return -1;
     }
 
     const QString localFilePath = fileUrl.toLocalFile();
@@ -1058,18 +1084,18 @@ void AppController::sendFile(const QString &peerId,
 
     if (!fileInfo.exists() || !fileInfo.isFile()) {
         reportError(QStringLiteral("文件发送失败：文件不存在或不是普通文件"));
-        return;
+        return -1;
     }
 
     if (!fileInfo.isReadable()) {
         reportError(QStringLiteral("文件发送失败：文件不可读"));
-        return;
+        return -1;
     }
 
     // 确保数据库里存在这个聊天对象。
     if (!m_peerDatabase.upsertPeer(normalizedPeerId, normalizedName, normalizedIp, true)) {
         reportError(QStringLiteral("更新文件接收方信息失败：") + m_peerDatabase.lastError());
-        return;
+        return -1;
     }
 
     // 记录一条本地文件发送消息，方便聊天窗口立即显示。
@@ -1081,22 +1107,15 @@ void AppController::sendFile(const QString &peerId,
 
     QString displayMessage;
 
-    //如果是图片，先复制到程序运行目录下的data目录
+    //如果是图片，先复制到程序运行目录下的data/cache目录
     //聊天记录不保存原始图片路径！（避免原图被删除或移动不好管理）
     if (isImageFile) {
-        const QString cacheRoot = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-
-        if (cacheRoot.isEmpty()) {
-            reportError(QStringLiteral("自动接收图片失败：无法获取系统临时目录！"));
-            return;
-        }
-
-        QDir dataDir(cacheRoot + QStringLiteral("/Messager"));
+        QDir dataDir(projectDataDirectory(QStringLiteral("cache")));
 
         if (!dataDir.exists()) {
             if (!dataDir.mkpath(QStringLiteral("."))) {
                 reportError(QStringLiteral("发送图片失败：无法创建图片缓存目录"));
-                return;
+                return -1;
             }
         }
 
@@ -1109,7 +1128,7 @@ void AppController::sendFile(const QString &peerId,
 
         if (!QFile::copy(localFilePath, cachePath)) {
             reportError(QStringLiteral("发送图片失败：复制图片到缓存目录失败"));
-            return;
+            return -1;
         }
 
         QFile::setPermissions(cachePath,
@@ -1127,7 +1146,7 @@ void AppController::sendFile(const QString &peerId,
                        << "cache =" << cachePath
                        << "error =" << reader.errorString();
 
-            return;
+            return -1;
         }
 
         displayMessage = QStringLiteral("[图片] ") + QFileInfo(cachePath).absoluteFilePath();
@@ -1138,9 +1157,26 @@ void AppController::sendFile(const QString &peerId,
         displayMessage = QStringLiteral("[发送文件] %1").arg(fileInfo.fileName());
     }
 
-    if (!m_privateChatDatabase.saveMessage(normalizedPeerId, true, displayMessage)) {
-        reportError(QStringLiteral("保存文件发送记录失败： ") + m_privateChatDatabase.lastError());
-        return;
+    //接收数据库自动生成的message_id。
+    //后续进度条和传输结果都通过这个ID精确定位消息。
+    qint64 messageId = -1;
+
+    //图片消息不显示普通文件传输失败状态，因此使用none。
+    //普通文件在创建消息时先标记为transferring。
+    const QString initialTransferStatus = isImageFile
+                                              ? QStringLiteral("none")
+                                              : QStringLiteral("transferring");
+
+    if (!m_privateChatDatabase.saveMessage(
+            normalizedPeerId,
+            true,
+            displayMessage,
+            &messageId,
+            initialTransferStatus)) {
+
+        reportError(QStringLiteral("保存文件发送记录失败：") + m_privateChatDatabase.lastError());
+
+        return -1;
     }
 
     if (m_currentPeerId == normalizedPeerId) {
@@ -1148,18 +1184,62 @@ void AppController::sendFile(const QString &peerId,
     }
 
     if (normalizedPeerId == m_chat.localId()) {
-        qInfo() << "给自己发送图片，只保存本地记录，不进行网络传输";
-        return;
+        if (!isImageFile) {
+            QDir downloadDir(projectDataDirectory(QStringLiteral("download")));
+
+            if (!downloadDir.exists()) {
+                if (!downloadDir.mkpath(QStringLiteral("."))) {
+                    reportError(QStringLiteral("保存本机文件失败：无法创建下载目录"));
+                    return -1;
+                }
+            }
+
+            const QString targetPath = downloadDir.filePath(fileInfo.fileName());
+
+            if (QFile::exists(targetPath)) {
+                QFile::remove(targetPath);
+            }
+
+            if (!QFile::copy(localFilePath, targetPath)) {
+                //文件消息已经写入数据库，因此复制失败时必须持久化failed状态
+                if (!m_privateChatDatabase.updateTransferStatus(messageId, QStringLiteral("failed"))) {
+                    qWarning() << "更新本机文件失败状态失败:" << m_privateChatDatabase.lastError();
+                }
+
+                if (m_currentPeerId == normalizedPeerId) { refreshMessages(); }
+
+                reportError(QStringLiteral("保存本机文件失败：复制文件到下载目录失败"));
+                return -1;
+            }
+        }
+
+        //普通文件复制成功后，将数据库状态改为completed。
+        //图片消息的状态为none，不需要更新文件传输状态。
+        if (!isImageFile) {
+            if (!m_privateChatDatabase.updateTransferStatus(messageId, QStringLiteral("completed"))) {
+                qWarning() << "更新本机文件完成状态失败:" << m_privateChatDatabase.lastError();
+            }
+
+            if (m_currentPeerId == normalizedPeerId) { refreshMessages(); }
+        }
+
+        qInfo() << "给自己发送文件，只保存本地记录，不进行网络传输";
+
+        return messageId;
+    }
+
+    //普通文件才需要记录传输状态。
+    //图片仍然沿用原来的图片消息处理流程。
+    if (!isImageFile) {
+        const QString key =
+            fileTransferKey(normalizedIp, fileInfo.fileName());
+
+        m_outgoingFileMessageIds.insert(key, messageId);
     }
 
     m_translateFile.sendFile(normalizedIp, localFilePath);
 
-    qInfo() << "开始发送文件:"
-            << "peerId =" << normalizedPeerId
-            << "username =" << normalizedName
-            << "ip =" << normalizedIp
-            << "file =" << localFilePath
-            << "size =" << fileInfo.size();
+    return messageId;
 }
 
 //本地文件路径转换(提供给Image.source)
@@ -1245,15 +1325,7 @@ void AppController::acceptImageFile(const QString &ip, const QString &fileName)
         return;
     }
 
-    const QString cacheRoot =
-        QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-
-    if (cacheRoot.isEmpty()) {
-        reportError(QStringLiteral("发送图片失败：无法获取系统临时目录！"));
-        return;
-    }
-
-    QDir dataDir(cacheRoot + QStringLiteral("/Messager"));
+    QDir dataDir(projectDataDirectory(QStringLiteral("cache")));
 
     if (!dataDir.exists()) {
         if (!dataDir.mkpath(QStringLiteral("."))) {
@@ -1284,6 +1356,48 @@ void AppController::handleFileTransferFinished(const QString &ip, const QString 
 {
     const QString normalizedIp = ip.trimmed();
 
+    //先处理普通文件传输状态。
+    //发送端和接收端都使用相同的“IP + 文件名”生成任务键。
+    const QString key =
+        fileTransferKey(normalizedIp, fileName);
+
+    qint64 fileMessageId = -1;
+
+    //先判断是否是本机发送出去的普通文件。
+    if (m_outgoingFileMessageIds.contains(key)) {
+        fileMessageId = m_outgoingFileMessageIds.take(key);
+    }
+    //否则判断是否是本机正在接收的普通文件。
+    else if (m_incomingFileMessageIds.contains(key)) {
+        fileMessageId = m_incomingFileMessageIds.take(key);
+    }
+
+    //找到了对应普通文件消息时，更新数据库中的持久化状态。
+    if (fileMessageId > 0) {
+        const QString transferStatus =
+            isSuccess
+                ? QStringLiteral("completed")
+                : QStringLiteral("failed");
+
+        if (!m_privateChatDatabase.updateTransferStatus(
+                fileMessageId,
+                transferStatus)) {
+
+            qWarning() << "更新文件传输状态失败:"
+                       << "messageId =" << fileMessageId
+                       << "status =" << transferStatus
+                       << "error =" << m_privateChatDatabase.lastError();
+        }
+
+        //当前私聊界面可能正在显示这条消息。
+        //重新读取数据库，使QML获得新的transferStatus。
+        if (!m_currentPeerId.isEmpty()) {
+            refreshMessages();
+        }
+    }
+
+    //下面继续处理自动接收图片。
+    //普通文件不在图片映射中，数据库状态更新完成后即可结束。
     if (!m_pendingImageSavePaths.contains(normalizedIp)) {
         return;
     }
@@ -1336,6 +1450,88 @@ void AppController::handleFileTransferFinished(const QString &ip, const QString 
             << "path =" << fileInfo.absoluteFilePath();
 }
 
+//接收普通文件到程序默认下载目录
+qint64 AppController::acceptFileToDownload(const QString &ip, const QString &fileName)
+{
+    if (!m_ready) {
+        reportError(QStringLiteral("程序尚未初始化！"));
+        return -1;
+    }
+
+    const QString normalizedIp = ip.trimmed();
+    const QString normalizedFileName = fileName.trimmed();
+
+    if (normalizedIp.isEmpty() || normalizedFileName.isEmpty()) {
+        reportError(QStringLiteral("接收文件失败：发送方IP或文件名为空"));
+        return -1;
+    }
+
+    QDir downloadDir(projectDataDirectory(QStringLiteral("download")));
+
+    if (!downloadDir.exists()) {
+        if (!downloadDir.mkpath(QStringLiteral("."))) {
+            reportError(QStringLiteral("接收文件失败：无法创建下载目录"));
+            return -1;
+        }
+    }
+
+    //只取文件名，避免对方传来的名字中带有路径。
+    const QString savePath = downloadDir.filePath(QFileInfo(normalizedFileName).fileName());
+
+    //根据发送方IP找到聊天对象。
+    //接收方需要先保存一条文件消息，ChatPanel才有对应气泡显示进度。
+    QString peerId;
+
+    for (const QVariant &item : m_peers) {
+        const QVariantMap peer = item.toMap();
+
+        if (peer.value(QStringLiteral("ip")).toString().trimmed() == normalizedIp) {
+            peerId = peer.value(QStringLiteral("peerId")).toString().trimmed();
+
+            break;
+        }
+    }
+
+    if (peerId.isEmpty()) {
+        reportError(QStringLiteral("接收文件失败：未找到发送方用户"));
+        return -1;
+    }
+
+    const QString safeFileName = QFileInfo(normalizedFileName).fileName();
+
+    //fromMe=false，表示这条文件消息来自对方。
+    const QString displayMessage = QStringLiteral("[接收文件] %1").arg(safeFileName);
+
+    //数据库为这条接收文件消息生成唯一message_id。
+    //接收方聊天框后续通过这个ID显示进度条。
+    qint64 messageId = -1;
+
+    if (!m_privateChatDatabase.saveMessage(peerId, false, displayMessage, &messageId, QStringLiteral("transferring"))) {
+        reportError(QStringLiteral("保存接收文件消息失败：") + m_privateChatDatabase.lastError());
+
+        return -1;
+    }
+
+    if (m_currentPeerId == peerId) { refreshMessages(); }
+
+    //记录本次接收任务对应的数据库消息ID。
+    //底层通知完成或失败时，用这个ID更新transfer_status。
+    const QString key = fileTransferKey(normalizedIp, safeFileName);
+
+    m_incomingFileMessageIds.insert(key, messageId);
+
+    //开始真正接收文件。
+    m_translateFile.acceptFile(normalizedIp, savePath);
+
+    qInfo() << "接受文件请求:"
+            << "fromIp =" << normalizedIp
+            << "savePath =" << savePath
+            << "messageId =" << messageId;
+
+    return messageId;
+}
+
+/*
 //接受该IP发送的文件
 void AppController::acceptFile(const QString &ip,
                                const QUrl &saveUrl)
@@ -1371,6 +1567,8 @@ void AppController::acceptFile(const QString &ip,
             << "fromIp =" << normalizedIp
             << "savePath =" << savePath;
 }
+
+*/
 
 //拒绝该IP发送的文件
 void AppController::rejectFile(const QString &ip)

@@ -65,6 +65,14 @@
 //     [v0.3.3] HeZhiyuan    2026-07-02 00:55:32
 //         * 接收群聊状态变化，退群或解散后保留当前历史消息并切换为只读状态
 //           解散群聊会隐藏退出按钮，同时关闭群聊详情界面并清空消息输入框
+//     [v0.3.4] JiangFan    2026-07-02
+//         * 完成文件传输进度条显示在聊天栏
+//     [v0.3.4] JiangFan    2026-07-03
+//         * 修复拒绝文件接受文件不能正确处理的bug，接收文件自动保存在data/download目录（待测试）
+//     [v0.3.5] JiangFan    2026-07-14
+//         * 增加文件传输进度条显示速度和预计剩余时间的内容
+//         * 重构文件接受弹窗的整体布局
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -119,16 +127,21 @@ ApplicationWindow {
     property string pendingFileIp: ""
     property string pendingFileName: ""
     property double pendingFileSize: 0
+    property string pendingFileSenderName: ""
 
     //文件传输状态显示
     property int fileTransferPercent: 0
     property string fileTransferStatusText: ""
+    property bool fileTransferVisible: false //进度条的可见性
+    property real fileTransferSpeedKBps: 0  //当前文件传输速度，单位KB/s
+    property int fileTransferRemainingSeconds: -1  //预计剩余时间，单位秒
+    property double fileTransferMessageId: -1     //当前正在显示进度条的文件消息ID
 
     //C++应用控制器：负责数据库、用户发现和消息收发，QML只处理界面状态
     AppController {
         id: appController
 
-        //删除成功后，再清理QML的当前用户状态。
+        //删除成功后，再清理QML的当前用户状态
         onPeerDeleted: function(peerId) {
             if (root.currentPeerId !== peerId)
                 return
@@ -178,6 +191,7 @@ ApplicationWindow {
             root.pendingFileName = fileName
             root.pendingFileSize = fileSize
             root.fileTransferPercent = 0
+            root.pendingFileSenderName = findUsernameByIp(fromIp)
 
             //图片文件自动接收，不弹出接收/拒绝面板
             if (root.isImageFileName(fileName)) {
@@ -198,21 +212,31 @@ ApplicationWindow {
         }
 
         //文件传输进度
-        onFileTransferProgress: function(ip, fileName, percent) {
+        //接收底层文件传输线程发送的实时状态。
+        onFileTransferProgress: function(ip, fileName, percent, speedKBps, remainingSeconds)
+        {
             root.fileTransferPercent = percent
-            root.fileTransferStatusText = qsTr("文件传输中: ") + percent + "%"
 
-            console.log("文件传输进度:", ip, fileName, percent)
+            root.fileTransferVisible = true
+
+            root.fileTransferSpeedKBps = speedKBps
+            root.fileTransferRemainingSeconds = remainingSeconds
+
+            root.fileTransferStatusText =
+                qsTr("文件传输中: ") + percent + "%"
         }
 
-        //文件传输完成
+        //QML这里只负责停止显示运行时进度
         onFileTransferFinished: function(ip, fileName, success) {
-            root.fileTransferPercent = success ? 100 : root.fileTransferPercent
             root.fileTransferStatusText = success
                 ? qsTr("文件传输完成: ") + fileName
                 : qsTr("文件传输失败: ") + fileName
 
-            console.log("文件传输结束:", ip, fileName, success)
+            root.fileTransferVisible = false
+            root.fileTransferMessageId = -1
+            root.fileTransferPercent = 0
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
         }
 
         //错误提示
@@ -249,6 +273,16 @@ ApplicationWindow {
         }
     }
 
+    function findUsernameByIp(ip) {
+        for (var i = 0; i < appController.peers.length; ++i) {
+            var peer = appController.peers[i];
+            if (peer.ip === ip) {
+                return peer.username;
+            }
+        }
+        return "";
+    }
+
     //判断图片的函数
     function isImageFileName(fileName)
     {
@@ -260,6 +294,46 @@ ApplicationWindow {
             || name.endsWith(".bmp")
             || name.endsWith(".gif")
             || name.endsWith(".webp")
+    }
+
+    //自己给自己发送普通文件时使用的本地保存进度
+    Timer {
+        id: localFileProgressTimer
+
+        interval: 20
+        repeat: true
+
+        onTriggered: {
+            if (root.fileTransferPercent < 100) {
+               root.fileTransferPercent += 10
+               return
+           }
+
+            stop()
+
+            //本地模拟进度结束，清理运行时状态。
+            root.fileTransferVisible = false
+            root.fileTransferPercent = 0
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
+            root.fileTransferMessageId = -1
+       }
+    }
+
+    //从fileUrl中提取文件名
+    function fileNameFromUrl(fileUrl)
+    {
+        var text = fileUrl.toString()
+
+        if (text.length === 0)
+            return ""
+
+        var index = text.lastIndexOf("/")
+
+        if (index < 0)
+            return decodeURIComponent(text)
+
+        return decodeURIComponent(text.substring(index + 1))
     }
 
     //校验消息并根据当前会话类型交给C++发送
@@ -294,25 +368,83 @@ ApplicationWindow {
     }
 
     //发送文件
-    function trySendFile(fileUrl) {
+    function trySendFile(fileUrl)
+    {
+        //当前项目暂时不支持群聊发送文件
         if (root.currentIsGroup) {
-            console.log("当前群聊暂未实现群文件协议")
+            console.log("当前群聊还不支持发文件")
             return
         }
-        if (root.currentPeerId === "")
-        {
+
+        //必须先选择一个私聊用户
+        if (root.currentPeerId.length === 0) {
             console.log("请先选择聊天对象")
             return
         }
 
-        if(fileUrl.toString().length === 0)
-        {
+        //没有选择有效文件
+        if (fileUrl.toString().length === 0) {
             console.log("文件路径为空")
             return
         }
 
-        appController.sendFile(root.currentPeerId, root.currentPeerName, root.currentPeerIp, fileUrl)
-        console.log("请求发送文件给:", root.currentPeerName, root.currentPeerIp, fileUrl)
+        //从文件URL中提取文件名
+        var fileName = root.fileNameFromUrl(fileUrl)
+
+        //图片使用图片消息显示，不使用普通文件进度条
+        var isImageFile = root.isImageFileName(fileName)
+
+        //判断是否发送给自己
+        var isSendToSelf =
+            root.currentPeerIp === appController.localIp()
+
+        //C++先将文件消息写入数据库
+        //然后返回该消息唯一的message_id
+        var messageId = appController.sendFile(
+            root.currentPeerId,
+            root.currentPeerName,
+            root.currentPeerIp,
+            fileUrl
+        )
+
+        //消息创建或发送任务启动失败
+        if (messageId <= 0) {
+            root.fileTransferVisible = false
+            root.fileTransferMessageId = -1
+            return
+        }
+
+        if (!isImageFile) {
+            //将进度条精确绑定到本次新创建的文件消息
+            root.fileTransferMessageId = messageId
+            root.fileTransferPercent = 0
+            root.fileTransferVisible = true
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
+        } else {
+            //图片不显示普通文件进度条
+            root.fileTransferMessageId = -1
+            root.fileTransferPercent = 0
+            root.fileTransferVisible = false
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
+        }
+
+        //自己给自己发送普通文件时，暂时保留模拟进度
+        if (!isImageFile && isSendToSelf) {
+            root.startLocalFileProgress()
+        }
+    }
+
+    //自己给自己发送文件的进度
+    function startLocalFileProgress()
+    {
+        localFileProgressTimer.stop()
+
+        root.fileTransferPercent = 0
+        root.fileTransferVisible = true
+
+        localFileProgressTimer.start()
     }
 
     //窗口缩放函数
@@ -796,6 +928,18 @@ ApplicationWindow {
                                                   ? appController.groupMessages
                                                   : appController.messages
                                     appController: appController
+
+                                    //传递文件传输信息
+                                    fileTransferVisible: root.fileTransferVisible
+
+                                    fileTransferPercent: root.fileTransferPercent
+
+                                    fileTransferSpeedKBps: root.fileTransferSpeedKBps
+
+                                    fileTransferRemainingSeconds: root.fileTransferRemainingSeconds
+
+                                    //ChatPanel通过数据库消息ID精确定位进度条气泡
+                                    fileTransferMessageId: root.fileTransferMessageId
                                 }
 
                                 //群成员列表
@@ -968,7 +1112,8 @@ ApplicationWindow {
         }
     }
 
-    //接收文件时选择保存路径
+    /*
+    //遗留产物：接收文件时选择保存路径
     FileDialog {
         id: saveFileDialog
 
@@ -997,21 +1142,39 @@ ApplicationWindow {
                 return
             }
 
+            root.fileTransferName = root.pendingFileName
+            root.fileTransferFromMe = false
+            root.fileTransferPercent = 0
+            root.fileTransferVisible = true
+
+            root.fileTransferSpeedKBps = 0
+            root.fileTransferRemainingSeconds = -1
+
+            //重新接收同名文件时，清除旧失败标识。
+            if (root.fileTransferFailedName === root.pendingFileName
+                    && root.fileTransferFailedFromMe === false) {
+                root.fileTransferFailed = false
+                root.fileTransferFailedName = ""
+            }
+
             appController.acceptFile(root.pendingFileIp, saveUrl)
 
             receiveFilePanel.visible = false
-            root.fileTransferStatusText = qsTr("已接受文件，等待传输")
+            root.fileTransferStatusText = qsTr("对方已接受文件，等待传输")
 
             console.log("接受文件:", root.pendingFileName, "保存到:", saveUrl)
         }
     }
 
+    */
+
     //文件接受提示面板
     Rectangle {
         id: receiveFilePanel
 
-        width: 300
-        height: 150
+        width: Math.min(340, root.width - 40)
+        height: receivecolumnLayout.implicitHeight + 30
+
         radius: 10
         visible: false
         color: "#FFFFFF"
@@ -1021,136 +1184,165 @@ ApplicationWindow {
 
         anchors.centerIn: parent
 
-        Text {
-            id: receiveTitle
+        ColumnLayout {
+            id: receivecolumnLayout
 
-            text: qsTr("收到文件")
-            font.pixelSize: 10
-            font.bold: true
-            color: "black"
+            x: 20
+            y: 20
+            width: parent.width - 40
 
-            anchors.left: parent.left
-            anchors.leftMargin: 20
-            anchors.top: parent.top
-            anchors.topMargin: 20
-        }
-
-
-        Text {
-            id: receiveInfo
-
-            text: root.pendingFileName
-                + "\n大小：" + root.fileSizeJudgement(root.pendingFileSize)
-                + "\n来自：" + root.pendingFileIp
-            font.pixelSize: 15
-            color: "#4E5969"
-            wrapMode: Text.Wrap
-
-            anchors.left: receiveTitle.left
-            anchors.right: parent.right
-            anchors.rightMargin: 20
-            anchors.top: receiveTitle.bottom
-            anchors.topMargin: 10
-        }
-
-        Text {
-            id: transferStatusText
-
-            text: root.fileTransferStatusText
-            font.pixelSize: 12
-            color: "#86909C"
-            elide: Text.ElideRight
-
-            anchors.left: receiveTitle.left
-            anchors.right: parent.right
-            anchors.rightMargin: 20
-            anchors.top: receiveInfo.bottom
-            anchors.topMargin: 10
-        }
-
-
-        Rectangle {
-            id: rejectFileButton
-
-            width: 70
-            height: 30
-            radius: 10
-            color: rejectFileHover.hovered ? "#F2F3F5" : "#FFFFFF"
-            border.color: "#D0D0D0"
-            border.width: 1
-
-            anchors.right: acceptFileButton.left
-            anchors.rightMargin: 10
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 20
+            spacing: 10
 
             Text {
-                text: qsTr("拒绝")
-                color: "#333333"
+                id: receiveTitle
+
+                text: qsTr("收到文件")
+                font.pixelSize: 10
+                font.bold: true
+                color: "black"
+
+                Layout.fillWidth: true
+            }
+
+
+            Text {
+                id: receiveInfo
+
+                text: root.pendingFileName
+                    + "\n大小：" + root.fileSizeJudgement(root.pendingFileSize)
+                    + "\n来自：" + (root.pendingFileSenderName.length > 0 ? root.pendingFileSenderName : root.pendingFileIp);
                 font.pixelSize: 15
-                anchors.centerIn: parent
+                color: "#4E5969"
+                wrapMode: Text.Wrap
+
+                Layout.fillWidth: true
             }
 
-            HoverHandler {
-                id: rejectFileHover
-                cursorShape: Qt.PointingHandCursor
+            Text {
+                id: transferStatusText
+
+                text: root.fileTransferStatusText
+                font.pixelSize: 12
+                color: "#86909C"
+                elide: Text.ElideRight
+
+                Layout.fillWidth: true
             }
 
-            TapHandler {
-                acceptedButtons: Qt.LeftButton
-                gesturePolicy: TapHandler.ReleaseWithinBounds
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+                spacing: 10
 
-                onTapped: {
-                    appController.rejectFile(root.pendingFileIp)
-
-                    receiveFilePanel.visible = false
-                    root.fileTransferStatusText = qsTr("已拒绝文件")
-
-                    console.log("拒绝文件:", root.pendingFileName, root.pendingFileIp)
+                //占位：按钮左边空间
+                Item {
+                    Layout.fillWidth: true
                 }
-            }
-        }
 
-        Rectangle {
-            id: acceptFileButton
+                Rectangle {
+                    id: rejectFileButton
 
-            width: 70
-            height: 30
-            radius: 10
-            color: acceptFileHover.hovered ? "#0E9FE6" : "#12B7F5"
+                    Layout.preferredWidth: 70
+                    Layout.preferredHeight: 30
+                    radius: 10
+                    color: rejectFileHover.hovered ? "#F2F3F5" : "#FFFFFF"
+                    border.color: "#D0D0D0"
+                    border.width: 1
 
-            anchors.right: parent.right
-            anchors.rightMargin: 20
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 15
-
-            Text {
-                text: qsTr("接收")
-                color: "#FFFFFF"
-                font.pixelSize: 15
-                anchors.centerIn: parent
-            }
-
-            HoverHandler {
-                id: acceptFileHover
-                cursorShape: Qt.PointingHandCursor
-            }
-
-            TapHandler {
-                acceptedButtons: Qt.LeftButton
-                gesturePolicy: TapHandler.ReleaseWithinBounds
-
-                onTapped: {
-                    if (root.pendingFileName.length === 0) {
-                        console.log("待接收文件名为空")
-                        root.fileTransferStatusText = qsTr("待接收文件名为空")
-                        return
+                    Text {
+                        text: qsTr("拒绝")
+                        color: "#333333"
+                        font.pixelSize: 15
+                        anchors.centerIn: parent
                     }
 
-                    //打开保存框前，先给它一个默认保存文件名。
-                    //这样用户不用只选目录，而是直接得到 /root/原文件名。
-                    saveFileDialog.selectedFile = "file:///root/" + encodeURIComponent(root.pendingFileName)
-                    saveFileDialog.open()
+                    HoverHandler {
+                        id: rejectFileHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                        onTapped: {
+                            appController.rejectFile(root.pendingFileIp)
+
+                            receiveFilePanel.visible = false
+                            root.fileTransferStatusText = qsTr("已拒绝文件")
+
+                            console.log("拒绝文件:", root.pendingFileName, root.pendingFileIp)
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: acceptFileButton
+
+                    Layout.preferredWidth: 70
+                    Layout.preferredHeight: 30
+                    radius: 10
+                    color: acceptFileHover.hovered ? "#0E9FE6" : "#12B7F5"
+
+                    Text {
+                        text: qsTr("接收")
+                        color: "#FFFFFF"
+                        font.pixelSize: 15
+                        anchors.centerIn: parent
+                    }
+
+                    HoverHandler {
+                        id: acceptFileHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+
+                        onTapped: {
+                            if (root.pendingFileName.length === 0) {
+                                console.log("待接收文件名为空")
+                                root.fileTransferStatusText =
+                                    qsTr("待接收文件名为空")
+                                return
+                            }
+
+                            //C++创建[接收文件]消息，并返回数据库message_id
+                            var messageId =
+                                appController.acceptFileToDownload(
+                                    root.pendingFileIp,
+                                    root.pendingFileName
+                                )
+
+                            //创建消息或启动接收失败时，不关闭接收面板
+                            if (messageId <= 0) {
+                                root.fileTransferStatusText =
+                                    qsTr("接受文件失败")
+                                return
+                            }
+
+                            //进度条精确绑定刚创建的接收文件消息
+                            root.fileTransferMessageId = messageId
+                            root.fileTransferPercent = 0
+                            root.fileTransferVisible = true
+                            root.fileTransferSpeedKBps = 0
+                            root.fileTransferRemainingSeconds = -1
+
+                            receiveFilePanel.visible = false
+
+                            root.fileTransferStatusText =
+                                qsTr("已接受文件，等待传输")
+
+                            console.log(
+                                "接收文件:",
+                                root.pendingFileName,
+                                root.pendingFileIp,
+                                "messageId:",
+                                messageId
+                            )
+                        }
+                    }
                 }
             }
         }
